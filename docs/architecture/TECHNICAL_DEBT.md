@@ -176,3 +176,39 @@ Verificado con SQL directo contra el proyecto: el número de prueba `+5730243304
 generó una sesión real de Supabase Auth y una fila real en `public.profiles` (con
 `display_name` y `email` capturados en el onboarding), confirmando el flujo completo
 teléfono → OTP → correo → perfil → permisos → `completeOnboarding()`.
+
+## 13. Mensajería real conectada a Supabase (contactos, chats 1-a-1, mensajes de texto) — 2026-08-18
+
+Se implementó el MVP de mensajería real (contactos por teléfono, chats 1-a-1,
+mensajes de texto con Realtime y confirmación de lectura), reemplazando los datos
+100% simulados de `mock-data.ts` para estas tres capas. **Sigue simulado** (no
+sincronizado con Supabase todavía): notas de voz, fotos/documentos, ubicación,
+reacciones, grupos, silenciar/fijar/archivar, mensajes que desaparecen,
+reenviar/editar/borrar.
+
+**Bug de RLS encontrado y corregido en el camino.** La política de INSERT de
+`chat_participants` (`chat_participants_insert`) verificaba "¿soy el creador de
+este chat?" con un `EXISTS (SELECT 1 FROM chats ...)` directo. Ese `EXISTS` corre
+con los permisos del usuario que hace la petición (no bypassa RLS), y la política
+de SELECT de `chats` (`chats_select_participant`) exige ya ser participante del
+chat vía `is_chat_participant()` — que es exactamente lo que el INSERT está
+intentando crear. Resultado: trampa circular, 403 permanente al intentar crear
+cualquier chat 1-a-1 nuevo (el botón "Enviar mensaje" no hacía nada visible).
+
+Diagnosticado con `mcp__Supabase__query_logs` sobre `edge_logs` (HTTP 403 real en
+`POST /rest/v1/chat_participants`) y confirmado de forma determinística
+simulando la política con `SET LOCAL ROLE authenticated` + `SET LOCAL
+request.jwt.claims` dentro de una transacción de prueba (con `ROLLBACK`, sin
+dejar datos). Corregido agregando `is_chat_creator(p_chat_id uuid)` — función
+`SECURITY DEFINER STABLE` con `search_path` fijo, igual patrón que
+`is_chat_participant`/`is_chat_admin` — que sí puede leer `chats` sin depender de
+que el registro de `chat_participants` ya exista. Migración:
+`supabase/migrations/20260818221803_fix_chat_participants_insert_rls_recursion.sql`
+(ya aplicada en el proyecto Supabase real).
+
+**Lección para futuras políticas RLS de este proyecto:** cualquier `WITH CHECK`
+o `USING` que necesite leer OTRA tabla con RLS propia debe hacerlo a través de una
+función `SECURITY DEFINER` (como ya se hace con `is_chat_participant`/
+`is_chat_admin`/`is_contact_of`/`can_view_status`), nunca con un `EXISTS`/subquery
+directo — de lo contrario queda sujeto a la RLS de esa otra tabla y puede crear
+ciclos irresolubles.
