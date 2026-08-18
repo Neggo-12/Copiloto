@@ -12,7 +12,21 @@ import type {
   UserProfile,
 } from "./types";
 
-export const CURRENT_USER_ID = "user_me";
+/**
+ * Id del usuario actual. Sigue siendo `"user_me"` mientras arranca la app
+ * (coincide con los datos simulados de abajo), pero es un binding *vivo*: en
+ * cuanto hay una sesión real de Supabase, `setCurrentUserId()` lo actualiza
+ * y todo lo que hace `import { CURRENT_USER_ID }` en el resto del código
+ * (chats.ts, contacts.ts, groups.ts, los componentes de chat, etc.) ve el id
+ * real desde ese momento — los módulos de ES leen el valor vivo, no una copia
+ * congelada al importar. Así no hay que tocar cada función que compara
+ * "¿este mensaje es mío?" una por una.
+ */
+export let CURRENT_USER_ID = "user_me";
+
+export function setCurrentUserId(id: string): void {
+  CURRENT_USER_ID = id;
+}
 
 function minutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60_000).toISOString();

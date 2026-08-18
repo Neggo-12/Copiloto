@@ -1,25 +1,121 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as chatActions from "@/lib/actions/chats";
 import * as groupActions from "@/lib/actions/groups";
 import type { ChatsState } from "@/lib/actions/chats";
-import { MOCK_CHATS, MOCK_MESSAGES, MOCK_PARTICIPANTS } from "@/lib/domain/mock-data";
+import { CURRENT_USER_ID, MOCK_PARTICIPANTS } from "@/lib/domain/mock-data";
+import { supabase } from "@/lib/supabase/client";
 import type {
   ChatId,
   DisappearingTtlSeconds,
+  Message,
   MessageId,
   StatusReplyRef,
   UserId,
 } from "@/lib/domain/types";
 
-const INITIAL_STATE: ChatsState = { chats: MOCK_CHATS, messages: MOCK_MESSAGES };
+const EMPTY_STATE: ChatsState = { chats: [], messages: [] };
 
 /**
  * Controlador de la pestaña Chats: expone las acciones aisladas ya vinculadas
- * al estado local. Al conectar el backend real solo cambia la implementación
- * interna, no las firmas usadas por la UI (ni por los futuros comandos de voz).
+ * al estado local.
+ *
+ * Desde el 2026-08-18, chats 1-a-1 y mensajes de texto son reales
+ * (Supabase + Realtime, ver `lib/actions/chats.ts`) — le llegan de verdad al
+ * otro usuario. Todo lo demás (reacciones, notas de voz, fotos/documentos,
+ * ubicación, grupos, silenciar/fijar/archivar, mensajes que desaparecen,
+ * reenviar/editar/borrar) sigue siendo simulación local sobre el mismo
+ * `ChatsState` — mismas firmas, para no romper la UI ni los futuros comandos
+ * de voz cuando se conecten también.
  */
 export function useChats() {
-  const [state, setState] = useState<ChatsState>(INITIAL_STATE);
+  const [state, setState] = useState<ChatsState>(EMPTY_STATE);
+  const [isLoading, setLoading] = useState(true);
+
+  // Carga inicial de chats y mensajes reales del usuario.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    chatActions.fetchChatsAndMessages(CURRENT_USER_ID).then((loaded) => {
+      if (cancelled) return;
+      setState(loaded);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Realtime: mensajes nuevos, chats nuevos (alguien más me agregó) y
+  // confirmaciones de lectura de mis propios mensajes.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`chats-realtime-${CURRENT_USER_ID}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          const message = chatActions.mapRealtimeMessageRow(payload.new);
+          setState((prev) => {
+            // Ya lo tengo (eco de mi propio insert, reconciliado en sendTextMessage).
+            if (prev.messages.some((item) => item.id === message.id)) return prev;
+            // No es un chat mío todavía (puede pasar si el chat llega por el
+            // otro evento un instante después) — se ignora, el otro handler
+            // se encarga de traerlo completo.
+            if (!prev.chats.some((chat) => chat.id === message.chatId)) return prev;
+            return chatActions.applyIncomingMessage(prev, message);
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_participants",
+          filter: `user_id=eq.${CURRENT_USER_ID}`,
+        },
+        (payload) => {
+          const row = payload.new as { chat_id: string };
+          setState((prev) => {
+            if (prev.chats.some((chat) => chat.id === row.chat_id)) return prev;
+            return prev;
+          });
+          chatActions.fetchSingleChat(row.chat_id, CURRENT_USER_ID).then((chat) => {
+            if (!chat) return;
+            setState((prev) =>
+              prev.chats.some((item) => item.id === chat.id)
+                ? prev
+                : { ...prev, chats: [chat, ...prev.chats] },
+            );
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "message_status" },
+        (payload) => {
+          const row = (payload.new ?? {}) as {
+            message_id?: string;
+            user_id?: string;
+            status?: string;
+          };
+          if (row.status !== "read" || row.user_id === CURRENT_USER_ID || !row.message_id) return;
+          setState((prev) => ({
+            ...prev,
+            messages: prev.messages.map((message) =>
+              message.id === row.message_id && message.senderId === CURRENT_USER_ID
+                ? { ...message, status: "read" }
+                : message,
+            ),
+          }));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
 
   /** Simula el avance sent -> delivered -> read de un mensaje propio. */
   const simulateDelivery = useCallback((messageId: MessageId) => {
@@ -32,19 +128,78 @@ export function useChats() {
   }, []);
 
   const openChat = useCallback((chatId: ChatId) => {
-    setState((prev) => chatActions.openChat(prev, chatId));
+    setState((prev) => {
+      // Los mensajes ajenos que aún no estén "read" se marcan como leídos de
+      // verdad en Supabase (mensaje_status) — así el que los mandó ve el
+      // check azul en su propio celular, en vivo.
+      const unreadIds = prev.messages
+        .filter(
+          (message) =>
+            message.chatId === chatId &&
+            message.senderId !== CURRENT_USER_ID &&
+            message.status !== "read",
+        )
+        .map((message) => message.id);
+      if (unreadIds.length > 0) {
+        void chatActions.markChatReadRemote(chatId, CURRENT_USER_ID, unreadIds);
+      }
+      return chatActions.openChat(prev, chatId);
+    });
   }, []);
+
+  /**
+   * Reconcilia el mensaje optimista local con la fila real ya guardada en
+   * Supabase. El eco de Realtime del propio mensaje (ver la suscripción de
+   * arriba) puede llegar antes de que esto termine — si ya está, solo se
+   * quita el optimista en vez de duplicar la burbuja.
+   */
+  const reconcileSentMessage = useCallback(
+    async (tempId: MessageId, chatId: ChatId, body: string, replyToMessageId: MessageId | null) => {
+      const inserted = await chatActions.insertTextMessage(
+        chatId,
+        CURRENT_USER_ID,
+        body,
+        replyToMessageId,
+      );
+      setState((prev) => {
+        if (!inserted) {
+          return {
+            ...prev,
+            messages: prev.messages.map((message) =>
+              message.id === tempId ? { ...message, status: "failed" as const } : message,
+            ),
+          };
+        }
+        const alreadyArrivedByRealtime = prev.messages.some(
+          (message) => message.id === inserted.id && message.id !== tempId,
+        );
+        if (alreadyArrivedByRealtime) {
+          return { ...prev, messages: prev.messages.filter((message) => message.id !== tempId) };
+        }
+        return {
+          ...prev,
+          messages: prev.messages.map((message) =>
+            message.id === tempId
+              ? ({ ...inserted, reactions: message.reactions } satisfies Message)
+              : message,
+          ),
+        };
+      });
+    },
+    [],
+  );
 
   const sendTextMessage = useCallback(
     (chatId: ChatId, body: string, replyToMessageId: MessageId | null = null) => {
       if (!body.trim()) return;
+      const trimmed = body.trim();
       setState((prev) => {
-        const result = chatActions.sendTextMessage(prev, chatId, body, replyToMessageId);
-        simulateDelivery(result.message.id);
+        const result = chatActions.sendTextMessage(prev, chatId, trimmed, replyToMessageId);
+        void reconcileSentMessage(result.message.id, chatId, trimmed, replyToMessageId);
         return result.state;
       });
     },
-    [simulateDelivery],
+    [reconcileSentMessage],
   );
 
   const sendVoiceNote = useCallback(
@@ -197,15 +352,39 @@ export function useChats() {
     setState((prev) => chatActions.deleteChat(prev, chatId));
   }, []);
 
-  const startChatWithUser = useCallback((participantId: UserId, title: string): ChatId => {
-    let chatId = "";
-    setState((prev) => {
-      const result = chatActions.startChatWithUser(prev, participantId, title);
-      chatId = result.chatId;
-      return result.state;
-    });
-    return chatId;
-  }, []);
+  /**
+   * Abre (o crea de verdad en Supabase) el chat 1-a-1 con un usuario real ya
+   * registrado — usado desde "Nuevo chat" y desde la ficha de un contacto.
+   * Async porque crear un chat nuevo implica una vuelta a la base de datos;
+   * si ya existe localmente, resuelve al toque sin tocar la red.
+   */
+  const startChatWithUser = useCallback(
+    async (
+      participantId: UserId,
+      title: string,
+      avatarUrl: string | null = null,
+    ): Promise<ChatId> => {
+      const existing = state.chats.find(
+        (chat) => !chat.isGroup && chat.participantIds.includes(participantId),
+      );
+      if (existing) return existing.id;
+
+      const chat = await chatActions.findOrCreateIndividualChat(
+        CURRENT_USER_ID,
+        participantId,
+        title,
+        avatarUrl,
+      );
+      if (!chat) return "" as ChatId;
+      setState((prev) =>
+        prev.chats.some((item) => item.id === chat.id)
+          ? prev
+          : { ...prev, chats: [chat, ...prev.chats] },
+      );
+      return chat.id as ChatId;
+    },
+    [state.chats],
+  );
 
   const getMessages = useCallback(
     (chatId: ChatId) => chatActions.getChatMessages(state, chatId),
@@ -267,6 +446,7 @@ export function useChats() {
 
   return {
     state,
+    isLoading,
     participants,
     openChat,
     sendTextMessage,

@@ -16,10 +16,367 @@ import type {
   UserId,
 } from "@/lib/domain/types";
 import { CURRENT_USER_ID } from "@/lib/domain/mock-data";
+import { supabase } from "@/lib/supabase/client";
 
 export interface ChatsState {
   chats: Chat[];
   messages: Message[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Backend real: contactos, chats 1-a-1 y mensajes de texto (2026-08-18) */
+/*                                                                      */
+/* Lo de aquí abajo sí habla con Supabase (tablas chats/chat_participants/ */
+/* messages/message_status) y es lo único que de verdad le llega al otro */
+/* usuario en vivo. El resto del archivo (reacciones, notas de voz,      */
+/* fotos/documentos, ubicación, grupos, silenciar/fijar/archivar,        */
+/* mensajes que desaparecen, reenviar/editar/borrar) sigue siendo         */
+/* simulación local sobre `ChatsState` — no se sincroniza todavía. Ver    */
+/* TECHNICAL_DEBT.md para el detalle de qué falta y por qué se dejó así. */
+/* ------------------------------------------------------------------ */
+
+interface ChatRow {
+  id: string;
+  type: "individual" | "group";
+  name: string | null;
+  photo_url: string | null;
+  disappearing_duration_seconds: number | null;
+  created_by: string;
+  created_at: string;
+}
+
+interface ChatParticipantRow {
+  chat_id: string;
+  user_id: string;
+  role: "member" | "admin";
+  is_pinned: boolean;
+  pinned_at: string | null;
+  is_muted: boolean;
+  muted_until: string | null;
+  is_archived: boolean;
+  last_read_at: string | null;
+  joined_at: string;
+}
+
+interface MessageRow {
+  id: string;
+  chat_id: string;
+  sender_id: string;
+  type: MessageKind;
+  content: string | null;
+  media_url: string | null;
+  media_file_name: string | null;
+  media_file_size_bytes: number | null;
+  media_duration_seconds: number | null;
+  waveform: number[] | null;
+  reply_to_id: string | null;
+  forwarded_from_chat_id: string | null;
+  reply_to_status_id: string | null;
+  created_at: string;
+  edited_at: string | null;
+  deleted_at: string | null;
+  expires_at: string | null;
+}
+
+const CHAT_COLUMNS =
+  "id, type, name, photo_url, disappearing_duration_seconds, created_by, created_at";
+const PARTICIPANT_COLUMNS =
+  "chat_id, user_id, role, is_pinned, pinned_at, is_muted, muted_until, is_archived, last_read_at, joined_at";
+const MESSAGE_COLUMNS =
+  "id, chat_id, sender_id, type, content, media_url, media_file_name, media_file_size_bytes, media_duration_seconds, waveform, reply_to_id, forwarded_from_chat_id, reply_to_status_id, created_at, edited_at, deleted_at, expires_at";
+
+function mapMessageRow(row: MessageRow): Message {
+  // Con `exactOptionalPropertyTypes` no se puede asignar `undefined` a una
+  // propiedad opcional — hay que omitir la clave por completo cuando el dato
+  // no existe, en vez de ponerle `?? undefined`.
+  let attachment: MessageAttachment | null = null;
+  if (row.type !== "text" && row.type !== "system") {
+    attachment = {
+      kind: row.type,
+      url: row.media_url ?? "#",
+      ...(row.media_file_name !== null ? { fileName: row.media_file_name } : {}),
+      ...(row.media_file_size_bytes !== null ? { fileSizeBytes: row.media_file_size_bytes } : {}),
+      ...(row.media_duration_seconds !== null
+        ? { durationSeconds: row.media_duration_seconds }
+        : {}),
+      ...(row.waveform !== null ? { waveform: row.waveform } : {}),
+    };
+  }
+  return {
+    id: row.id,
+    chatId: row.chat_id,
+    senderId: row.sender_id,
+    kind: row.type,
+    body: row.content ?? "",
+    attachment,
+    // Estado simplificado por ahora: "sent" al insertarse, "read" en cuanto
+    // llega el evento en vivo de message_status (ver la suscripción en
+    // useChats.ts). No se distingue "delivered" todavía.
+    status: "sent",
+    createdAt: row.created_at,
+    editedAt: row.edited_at,
+    deletedAt: row.deleted_at,
+    replyToMessageId: row.reply_to_id,
+    forwardedFromChatId: row.forwarded_from_chat_id,
+    reactions: [],
+    disappearingTtlSeconds: null,
+    statusReply: null,
+  };
+}
+
+function mapChatRow(
+  row: ChatRow,
+  participants: ChatParticipantRow[],
+  myUserId: UserId,
+  title: string,
+  avatarUrl: string | null,
+): Chat {
+  const mine = participants.find((item) => item.user_id === myUserId);
+  return {
+    id: row.id,
+    participantIds: participants.map((item) => item.user_id),
+    title,
+    avatarUrl,
+    lastMessagePreview: "",
+    lastMessageAt: row.created_at,
+    unreadCount: 0,
+    isMuted: mine?.is_muted ?? false,
+    mutedUntil: mine?.muted_until ?? null,
+    isPinned: mine?.is_pinned ?? false,
+    pinnedAt: mine?.pinned_at ?? null,
+    // La tabla solo guarda un booleano `is_archived`, no un timestamp real de
+    // cuándo se archivó — se usa `created_at` del chat como valor estable
+    // para poder ordenar; el orden exacto entre varios archivados puede no
+    // ser perfecto, pero es un detalle menor.
+    archivedAt: mine?.is_archived ? row.created_at : null,
+    activity: "idle",
+    isGroup: row.type === "group",
+    adminIds: participants.filter((item) => item.role === "admin").map((item) => item.user_id),
+    disappearingTtlSeconds: null,
+  };
+}
+
+/** Carga todos los chats reales del usuario junto con sus mensajes. */
+export async function fetchChatsAndMessages(
+  userId: UserId,
+): Promise<{ chats: Chat[]; messages: Message[] }> {
+  const { data: myParticipantRows } = await supabase
+    .from("chat_participants")
+    .select(PARTICIPANT_COLUMNS)
+    .eq("user_id", userId);
+  const chatIds = (myParticipantRows ?? []).map((row) => row.chat_id);
+  if (chatIds.length === 0) return { chats: [], messages: [] };
+
+  const [{ data: chatRows }, { data: allParticipantRows }, { data: messageRows }] =
+    await Promise.all([
+      supabase.from("chats").select(CHAT_COLUMNS).in("id", chatIds),
+      supabase.from("chat_participants").select(PARTICIPANT_COLUMNS).in("chat_id", chatIds),
+      supabase
+        .from("messages")
+        .select(MESSAGE_COLUMNS)
+        .in("chat_id", chatIds)
+        .order("created_at", { ascending: true }),
+    ]);
+
+  const participantUserIds = Array.from(
+    new Set((allParticipantRows ?? []).map((row) => row.user_id)),
+  );
+  const { data: profileRows } = await supabase
+    .from("profiles")
+    .select("id, display_name, avatar_url")
+    .in("id", participantUserIds.length > 0 ? participantUserIds : [userId]);
+  const profileById = new Map((profileRows ?? []).map((row) => [row.id, row]));
+
+  const participantsByChat = new Map<string, ChatParticipantRow[]>();
+  for (const row of (allParticipantRows ?? []) as ChatParticipantRow[]) {
+    const list = participantsByChat.get(row.chat_id) ?? [];
+    list.push(row);
+    participantsByChat.set(row.chat_id, list);
+  }
+
+  const chats: Chat[] = ((chatRows ?? []) as ChatRow[]).map((row) => {
+    const participants = participantsByChat.get(row.id) ?? [];
+    const other = participants.find((item) => item.user_id !== userId);
+    const otherProfile = other ? profileById.get(other.user_id) : undefined;
+    const title =
+      row.type === "group" ? (row.name ?? "Grupo") : (otherProfile?.display_name ?? "Usuario");
+    const avatarUrl = row.type === "group" ? row.photo_url : (otherProfile?.avatar_url ?? null);
+    return mapChatRow(row, participants, userId, title, avatarUrl);
+  });
+
+  const messages: Message[] = ((messageRows ?? []) as MessageRow[]).map(mapMessageRow);
+
+  const myParticipantByChat = new Map(
+    ((myParticipantRows ?? []) as ChatParticipantRow[]).map((row) => [row.chat_id, row]),
+  );
+  for (const chat of chats) {
+    const chatMessages = messages.filter((message) => message.chatId === chat.id);
+    const last = chatMessages.at(-1);
+    if (last) {
+      chat.lastMessagePreview = previewForMessage(last);
+      chat.lastMessageAt = last.createdAt;
+    }
+    const lastReadAt = myParticipantByChat.get(chat.id)?.last_read_at;
+    chat.unreadCount = chatMessages.filter(
+      (message) => message.senderId !== userId && (!lastReadAt || message.createdAt > lastReadAt),
+    ).length;
+  }
+
+  return { chats, messages };
+}
+
+/** Trae un chat puntual (usado cuando llega por Realtime uno nuevo del que no era parte antes). */
+export async function fetchSingleChat(chatId: ChatId, userId: UserId): Promise<Chat | null> {
+  const { data: chatRow } = await supabase
+    .from("chats")
+    .select(CHAT_COLUMNS)
+    .eq("id", chatId)
+    .maybeSingle();
+  if (!chatRow) return null;
+  const typedChatRow = chatRow as ChatRow;
+  const { data: participantRows } = await supabase
+    .from("chat_participants")
+    .select(PARTICIPANT_COLUMNS)
+    .eq("chat_id", chatId);
+  const participants = (participantRows ?? []) as ChatParticipantRow[];
+  const other = participants.find((item) => item.user_id !== userId);
+
+  let title = typedChatRow.name ?? "Grupo";
+  let avatarUrl = typedChatRow.photo_url;
+  if (typedChatRow.type === "individual" && other) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("display_name, avatar_url")
+      .eq("id", other.user_id)
+      .maybeSingle();
+    title = profile?.display_name ?? "Usuario";
+    avatarUrl = profile?.avatar_url ?? null;
+  }
+  return mapChatRow(typedChatRow, participants, userId, title, avatarUrl);
+}
+
+/** Convierte la fila cruda que manda Supabase Realtime en un `Message` del dominio. */
+export function mapRealtimeMessageRow(row: unknown): Message {
+  return mapMessageRow(row as MessageRow);
+}
+
+/** Inserta un mensaje ya llegado por Realtime en el estado local (mismo camino que uno propio). */
+export function applyIncomingMessage(state: ChatsState, message: Message): ChatsState {
+  return touchChat({ ...state, messages: [...state.messages, message] }, message);
+}
+
+/** Inserta un mensaje de texto real; le llega al otro usuario por Realtime. */
+export async function insertTextMessage(
+  chatId: ChatId,
+  senderId: UserId,
+  body: string,
+  replyToMessageId: MessageId | null = null,
+): Promise<Message | null> {
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      chat_id: chatId,
+      sender_id: senderId,
+      type: "text",
+      content: body,
+      reply_to_id: replyToMessageId,
+    })
+    .select(MESSAGE_COLUMNS)
+    .single();
+  if (error || !data) return null;
+  return mapMessageRow(data as MessageRow);
+}
+
+/** Busca (o crea) el chat 1-a-1 real con otro usuario ya registrado. */
+export async function findOrCreateIndividualChat(
+  userId: UserId,
+  participantId: UserId,
+  participantDisplayName: string,
+  participantAvatarUrl: string | null = null,
+): Promise<Chat | null> {
+  const { data: myRows } = await supabase
+    .from("chat_participants")
+    .select("chat_id")
+    .eq("user_id", userId);
+  const myChatIds = (myRows ?? []).map((row) => row.chat_id);
+
+  if (myChatIds.length > 0) {
+    const { data: sharedRows } = await supabase
+      .from("chat_participants")
+      .select("chat_id")
+      .eq("user_id", participantId)
+      .in("chat_id", myChatIds);
+    for (const shared of sharedRows ?? []) {
+      const { data: chatRow } = await supabase
+        .from("chats")
+        .select(CHAT_COLUMNS)
+        .eq("id", shared.chat_id)
+        .eq("type", "individual")
+        .maybeSingle();
+      if (chatRow) {
+        const { data: participantRows } = await supabase
+          .from("chat_participants")
+          .select(PARTICIPANT_COLUMNS)
+          .eq("chat_id", chatRow.id);
+        return mapChatRow(
+          chatRow as ChatRow,
+          (participantRows ?? []) as ChatParticipantRow[],
+          userId,
+          participantDisplayName,
+          participantAvatarUrl,
+        );
+      }
+    }
+  }
+
+  const { data: newChat, error: chatError } = await supabase
+    .from("chats")
+    .insert({ type: "individual", created_by: userId })
+    .select(CHAT_COLUMNS)
+    .single();
+  if (chatError || !newChat) return null;
+
+  const { data: participantRows, error: participantsError } = await supabase
+    .from("chat_participants")
+    .insert([
+      { chat_id: newChat.id, user_id: userId, role: "admin" },
+      { chat_id: newChat.id, user_id: participantId, role: "member" },
+    ])
+    .select(PARTICIPANT_COLUMNS);
+  if (participantsError || !participantRows) return null;
+
+  return mapChatRow(
+    newChat as ChatRow,
+    participantRows as ChatParticipantRow[],
+    userId,
+    participantDisplayName,
+    participantAvatarUrl,
+  );
+}
+
+/**
+ * Marca como leídos (en la base de datos real) los mensajes del otro
+ * participante al abrir el chat — así el que los envió ve el check azul.
+ */
+export async function markChatReadRemote(
+  chatId: ChatId,
+  userId: UserId,
+  unreadMessageIds: MessageId[],
+): Promise<void> {
+  await supabase
+    .from("chat_participants")
+    .update({ last_read_at: new Date().toISOString() })
+    .eq("chat_id", chatId)
+    .eq("user_id", userId);
+  if (unreadMessageIds.length === 0) return;
+  await supabase.from("message_status").upsert(
+    unreadMessageIds.map((messageId) => ({
+      message_id: messageId,
+      user_id: userId,
+      status: "read" as const,
+    })),
+    { onConflict: "message_id,user_id" },
+  );
 }
 
 /** Ventana de edición/eliminación de un mensaje propio (regla provisional). */

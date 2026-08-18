@@ -1,21 +1,15 @@
 /**
- * Acciones aisladas y reutilizables de la libreta de contactos.
- * Igual que en `chats.ts` y `notes.ts`, son funciones puras sobre
- * `ContactsState`: las mismas firmas servirán para la UI, para comandos de voz
- * y, más adelante, contra el backend real.
+ * Acciones de la libreta de contactos. Las funciones de solo lectura sobre
+ * `ContactsState` (ordenar, buscar, filtrar) siguen siendo puras — sirven
+ * igual para la UI o para comandos de voz. Agregar/invitar/borrar un
+ * contacto ya habla directo con Supabase (tabla `public.contacts`), 2026-08-18.
  */
 import type { Contact, ContactId, UserId } from "@/lib/domain/types";
-import { CURRENT_USER_ID } from "@/lib/domain/mock-data";
 import { COUNTRIES, findCountry, normalizeNationalNumber, toE164 } from "@/lib/domain/countries";
+import { supabase } from "@/lib/supabase/client";
 
 export interface ContactsState {
   contacts: Contact[];
-}
-
-let sequence = 0;
-function nextId(prefix: string): string {
-  sequence += 1;
-  return `${prefix}_${Date.now().toString(36)}_${sequence}`;
 }
 
 /** Orden alfabético estable e insensible a acentos. */
@@ -75,69 +69,118 @@ export interface AddContactInput {
 }
 
 export interface AddContactResult {
-  state: ContactsState;
   contact: Contact | null;
   error: string | null;
 }
 
+/** Forma cruda de la fila de `public.contacts` tal como la devuelve Supabase. */
+interface ContactRow {
+  id: string;
+  user_id: string;
+  contact_profile_id: string | null;
+  display_name: string;
+  phone: string;
+  avatar_url: string | null;
+  source: "device" | "manual";
+  is_invited: boolean;
+}
+
+const CONTACT_ROW_COLUMNS =
+  "id, user_id, contact_profile_id, display_name, phone, avatar_url, source, is_invited";
+
+function mapContactRow(row: ContactRow): Contact {
+  return {
+    id: row.id,
+    ownerId: row.user_id,
+    displayName: row.display_name,
+    phoneNumber: row.phone,
+    avatarUrl: row.avatar_url,
+    // Si el contacto quedó vinculado a un perfil real, ya usa la app.
+    hasAppAccount: row.contact_profile_id !== null,
+    linkedUserId: row.contact_profile_id,
+    source: row.source,
+    isInvited: row.is_invited,
+  };
+}
+
+/** Carga la libreta de contactos real del usuario desde Supabase. */
+export async function fetchContacts(ownerId: UserId): Promise<Contact[]> {
+  const { data, error } = await supabase
+    .from("contacts")
+    .select(CONTACT_ROW_COLUMNS)
+    .eq("user_id", ownerId);
+  if (error || !data) return [];
+  return (data as ContactRow[]).map(mapContactRow);
+}
+
 /**
- * Agregar contacto manual por número de celular. El nombre es opcional: si no
- * se indica, se usa el número como nombre visible.
+ * Agrega un contacto real por número de celular. Busca si ese número ya
+ * tiene una cuenta (tabla `profiles`): si sí, lo vincula (`contact_profile_id`)
+ * para que aparezca disponible en "Nuevo chat"; si no, queda guardado como
+ * invitable (mismo comportamiento que antes tenía la versión simulada, solo
+ * que ahora la verificación de "¿ya usa la app?" es real).
  */
-export function addManualContact(state: ContactsState, input: AddContactInput): AddContactResult {
+export async function addContactByPhone(
+  ownerId: UserId,
+  input: AddContactInput,
+): Promise<AddContactResult> {
   const country = findCountry(input.countryCode ?? "CO");
   const digits = normalizeNationalNumber(input.nationalNumber);
   if (digits.length !== country.nationalDigits) {
+    return { contact: null, error: `El número debe tener ${country.nationalDigits} dígitos.` };
+  }
+  const phoneNumber = toE164(digits, country);
+
+  const { data: existingRow } = await supabase
+    .from("contacts")
+    .select(CONTACT_ROW_COLUMNS)
+    .eq("user_id", ownerId)
+    .eq("phone", phoneNumber)
+    .maybeSingle();
+  if (existingRow) {
     return {
-      state,
-      contact: null,
-      error: `El número debe tener ${country.nationalDigits} dígitos.`,
+      contact: mapContactRow(existingRow as ContactRow),
+      error: "Ese número ya está en tus contactos.",
     };
   }
 
-  const phoneNumber = toE164(digits, country);
-  const existing = state.contacts.find((contact) => contact.phoneNumber === phoneNumber);
-  if (existing) {
-    return { state, contact: existing, error: "Ese número ya está en tus contactos." };
-  }
+  const { data: matchedProfile } = await supabase
+    .from("profiles")
+    .select("id, display_name, avatar_url")
+    .eq("phone", phoneNumber)
+    .maybeSingle();
 
   const name = (input.displayName ?? "").trim();
-  const linkedUserId: UserId = nextId("user");
-  const contact: Contact = {
-    id: nextId("contact"),
-    ownerId: CURRENT_USER_ID,
-    displayName: name || formatContactPhone(phoneNumber),
-    phoneNumber,
-    avatarUrl: null,
-    // Simulación: al agregar manualmente asumimos que el número ya usa la app.
-    hasAppAccount: true,
-    linkedUserId,
-    source: "manual",
-    isInvited: false,
-  };
+  const { data: inserted, error } = await supabase
+    .from("contacts")
+    .insert({
+      user_id: ownerId,
+      contact_profile_id: matchedProfile?.id ?? null,
+      display_name: name || matchedProfile?.display_name || formatContactPhone(phoneNumber),
+      phone: phoneNumber,
+      avatar_url: matchedProfile?.avatar_url ?? null,
+      source: "manual",
+      is_invited: false,
+    })
+    .select(CONTACT_ROW_COLUMNS)
+    .single();
 
-  return { state: { contacts: [...state.contacts, contact] }, contact, error: null };
+  if (error || !inserted) {
+    return { contact: null, error: error?.message ?? "No se pudo guardar el contacto." };
+  }
+  return { contact: mapContactRow(inserted as ContactRow), error: null };
 }
 
-/** Marca el contacto como invitado y devuelve el enlace de invitación simulado. */
-export function inviteContact(
-  state: ContactsState,
-  contactId: ContactId,
-): { state: ContactsState; inviteUrl: string } {
-  const inviteUrl = `https://vozz.app/invitar?ref=${CURRENT_USER_ID}`;
+/** Marca el contacto como invitado y devuelve el enlace de invitación (simulado: no manda SMS/WhatsApp real todavía). */
+export async function inviteContactRemote(ownerId: UserId, contactId: ContactId): Promise<string> {
+  const inviteUrl = `https://vozz.app/invitar?ref=${ownerId}`;
+  await supabase.from("contacts").update({ is_invited: true }).eq("id", contactId);
   if (typeof window !== "undefined") {
     console.info("[inviteContact] Simulando compartir enlace:", inviteUrl);
   }
-  return {
-    state: {
-      contacts: state.contacts.map((contact) =>
-        contact.id === contactId ? { ...contact, isInvited: true } : contact,
-      ),
-    },
-    inviteUrl,
-  };
+  return inviteUrl;
 }
 
-export function deleteContact(state: ContactsState, contactId: ContactId): ContactsState {
-  return { contacts: state.contacts.filter((contact) => contact.id !== contactId) };
+export async function deleteContactRemote(contactId: ContactId): Promise<void> {
+  await supabase.from("contacts").delete().eq("id", contactId);
 }

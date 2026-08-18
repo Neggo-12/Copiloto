@@ -67,7 +67,9 @@ export function ContactDetailScreen({
             label={contact.isInvited ? "Invitado" : "Invitar"}
             primary
             disabled={contact.isInvited}
-            onClick={() => controller.inviteContact(contact.id)}
+            onClick={() => {
+              void controller.inviteContact(contact.id);
+            }}
           />
         )}
         <ActionTile

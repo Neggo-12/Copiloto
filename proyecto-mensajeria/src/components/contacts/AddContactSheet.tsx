@@ -29,8 +29,12 @@ export function AddContactSheet({
     setError(null);
   }
 
-  function handleSubmit() {
-    const result = controller.addManualContact({ nationalNumber, displayName, countryCode });
+  const [isSaving, setSaving] = useState(false);
+
+  async function handleSubmit() {
+    setSaving(true);
+    const result = await controller.addManualContact({ nationalNumber, displayName, countryCode });
+    setSaving(false);
     if (result.error || !result.contact) {
       setError(result.error ?? "No pudimos guardar el contacto.");
       return;
@@ -48,7 +52,13 @@ export function AddContactSheet({
         onClose();
       }}
       footer={
-        <PrimaryAction onClick={handleSubmit} disabled={nationalNumber.trim().length === 0}>
+        <PrimaryAction
+          onClick={() => {
+            void handleSubmit();
+          }}
+          disabled={nationalNumber.trim().length === 0 || isSaving}
+          loading={isSaving}
+        >
           Guardar contacto
         </PrimaryAction>
       }

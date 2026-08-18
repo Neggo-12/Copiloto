@@ -118,11 +118,16 @@ function MainShell() {
         tabBar={tabBar}
         onSendMessage={(contact) => {
           if (!contact.linkedUserId) return;
-          // Abre el chat existente o lo crea, y salta a la pestaña Chats.
-          const chatId = chats.startChatWithUser(contact.linkedUserId, contact.displayName);
-          chats.openChat(chatId);
-          setOpenChatId(chatId);
-          setActiveTab("chats");
+          // Abre el chat existente o lo crea de verdad en Supabase, y salta
+          // a la pestaña Chats.
+          void chats
+            .startChatWithUser(contact.linkedUserId, contact.displayName, contact.avatarUrl)
+            .then((chatId) => {
+              if (!chatId) return;
+              chats.openChat(chatId);
+              setOpenChatId(chatId);
+              setActiveTab("chats");
+            });
         }}
       />
     );

@@ -269,9 +269,12 @@ export function ChatListScreen({
         contacts={contacts}
         onPickContact={(contact) => {
           if (!contact.linkedUserId) return;
-          const chatId = controller.startChatWithUser(contact.linkedUserId, contact.displayName);
           setPickerOpen(false);
-          if (chatId) onOpenChat(chatId);
+          void controller
+            .startChatWithUser(contact.linkedUserId, contact.displayName, contact.avatarUrl)
+            .then((chatId) => {
+              if (chatId) onOpenChat(chatId);
+            });
         }}
         onClose={() => setPickerOpen(false)}
       />

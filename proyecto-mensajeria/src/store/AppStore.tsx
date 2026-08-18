@@ -14,6 +14,7 @@ import type {
   UserProfile,
 } from "@/lib/domain/types";
 import { DEFAULT_COUNTRY_CODE } from "@/lib/domain/countries";
+import { setCurrentUserId } from "@/lib/domain/mock-data";
 import { supabase } from "@/lib/supabase/client";
 
 export type ThemeMode = "light" | "dark";
@@ -150,6 +151,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       isOnline: true,
       createdAt: now,
     };
+    // Todo el resto del código (chats.ts, contacts.ts, groups.ts, los
+    // componentes de chat) sigue leyendo el "usuario actual" de esta
+    // constante — actualizarla aquí es lo que hace que dejen de comparar
+    // contra el "user_me" simulado y empiecen a usar el id real.
+    setCurrentUserId(user.id);
     setCurrentUser(user);
     setOnboardingStep("done");
     return user;
@@ -181,6 +187,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createdAt: data.created_at,
     };
 
+    setCurrentUserId(user.id);
     setCurrentUser(user);
     setOnboardingStep("done");
     return true;

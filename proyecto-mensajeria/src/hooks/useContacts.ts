@@ -1,13 +1,12 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as contactActions from "@/lib/actions/contacts";
-import type { AddContactInput, ContactsState } from "@/lib/actions/contacts";
-import { MOCK_CONTACTS } from "@/lib/domain/mock-data";
+import type { AddContactInput, AddContactResult } from "@/lib/actions/contacts";
+import { CURRENT_USER_ID } from "@/lib/domain/mock-data";
 import type { Contact, ContactId } from "@/lib/domain/types";
 
-const INITIAL_STATE: ContactsState = { contacts: MOCK_CONTACTS };
-
 export interface ContactsController {
-  state: ContactsState;
+  /** true mientras se cargan los contactos reales por primera vez. */
+  isLoading: boolean;
   /** Todos los contactos, ordenados alfabéticamente. */
   allContacts: Contact[];
   /** Contactos que ya usan la app (fuente única para el selector de Chats). */
@@ -16,19 +15,35 @@ export interface ContactsController {
   invitableContacts: Contact[];
   search: (query: string) => Contact[];
   findContact: (contactId: ContactId) => Contact | null;
-  addManualContact: (input: AddContactInput) => { contact: Contact | null; error: string | null };
-  inviteContact: (contactId: ContactId) => string;
+  addManualContact: (input: AddContactInput) => Promise<AddContactResult>;
+  inviteContact: (contactId: ContactId) => Promise<string>;
   deleteContact: (contactId: ContactId) => void;
 }
 
 /**
  * Controlador de la pestaña Contactos: única fuente de datos de contactos de
- * la app (Chats y reenvíos la reutilizan, sin mocks duplicados).
+ * la app (Chats y reenvíos la reutilizan, sin mocks duplicados). Conectado a
+ * Supabase (tabla `public.contacts`) desde el 2026-08-18 — antes era 100%
+ * simulado en memoria.
  */
 export function useContacts(): ContactsController {
-  const [state, setState] = useState<ContactsState>(INITIAL_STATE);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [isLoading, setLoading] = useState(true);
 
-  const allContacts = useMemo(() => contactActions.sortContacts(state.contacts), [state]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    contactActions.fetchContacts(CURRENT_USER_ID).then((loaded) => {
+      if (cancelled) return;
+      setContacts(loaded);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allContacts = useMemo(() => contactActions.sortContacts(contacts), [contacts]);
   const appContacts = useMemo(() => contactActions.getAppContacts(allContacts), [allContacts]);
   const invitableContacts = useMemo(
     () => contactActions.getInvitableContacts(allContacts),
@@ -36,39 +51,39 @@ export function useContacts(): ContactsController {
   );
 
   const search = useCallback(
-    (query: string) => contactActions.searchContacts(state, query),
-    [state],
+    (query: string) => contactActions.searchContacts({ contacts }, query),
+    [contacts],
   );
 
   const findContact = useCallback(
-    (contactId: ContactId) => contactActions.findContact(state, contactId),
-    [state],
+    (contactId: ContactId) => contactActions.findContact({ contacts }, contactId),
+    [contacts],
   );
 
-  const addManualContact = useCallback(
-    (input: AddContactInput) => {
-      const result = contactActions.addManualContact(state, input);
-      setState(result.state);
-      return { contact: result.contact, error: result.error };
-    },
-    [state],
-  );
+  const addManualContact = useCallback(async (input: AddContactInput) => {
+    const result = await contactActions.addContactByPhone(CURRENT_USER_ID, input);
+    if (result.contact) {
+      const added = result.contact;
+      setContacts((prev) => (prev.some((item) => item.id === added.id) ? prev : [...prev, added]));
+    }
+    return result;
+  }, []);
 
-  const inviteContact = useCallback(
-    (contactId: ContactId) => {
-      const result = contactActions.inviteContact(state, contactId);
-      setState(result.state);
-      return result.inviteUrl;
-    },
-    [state],
-  );
+  const inviteContact = useCallback(async (contactId: ContactId) => {
+    const inviteUrl = await contactActions.inviteContactRemote(CURRENT_USER_ID, contactId);
+    setContacts((prev) =>
+      prev.map((contact) => (contact.id === contactId ? { ...contact, isInvited: true } : contact)),
+    );
+    return inviteUrl;
+  }, []);
 
   const deleteContact = useCallback((contactId: ContactId) => {
-    setState((prev) => contactActions.deleteContact(prev, contactId));
+    setContacts((prev) => prev.filter((contact) => contact.id !== contactId));
+    void contactActions.deleteContactRemote(contactId);
   }, []);
 
   return {
-    state,
+    isLoading,
     allContacts,
     appContacts,
     invitableContacts,

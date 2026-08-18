@@ -89,7 +89,9 @@ export function ContactListScreen({
                   <ContactIdentity contact={contact} />
                   <button
                     type="button"
-                    onClick={() => controller.inviteContact(contact.id)}
+                    onClick={() => {
+                      void controller.inviteContact(contact.id);
+                    }}
                     disabled={contact.isInvited}
                     className="press touch-target shrink-0 rounded-full border border-border px-4 text-[14px] font-semibold text-primary disabled:text-muted-foreground disabled:opacity-70"
                   >
