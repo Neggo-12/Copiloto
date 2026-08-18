@@ -329,21 +329,38 @@ export async function findOrCreateIndividualChat(
     }
   }
 
-  const { data: newChat, error: chatError } = await supabase
+  // Generamos el id en el cliente y creamos el chat SIN pedir `.select()`
+  // (Prefer: return=minimal). Si encadenáramos `.select().single()` aquí,
+  // Postgres tendría que evaluar la política de lectura (`is_chat_participant`)
+  // sobre la fila recién insertada, y esa política falla porque el registro
+  // de `chat_participants` del usuario todavía no existe — eso causaba el
+  // 403 al enviar el primer mensaje a un contacto nuevo.
+  const newChatId = crypto.randomUUID();
+  const { error: chatError } = await supabase
     .from("chats")
-    .insert({ type: "individual", created_by: userId })
-    .select(CHAT_COLUMNS)
-    .single();
-  if (chatError || !newChat) return null;
+    .insert({ id: newChatId, type: "individual", created_by: userId });
+  if (chatError) return null;
 
+  // Esta sí puede pedir `.select()`: dentro del mismo INSERT, para cuando
+  // Postgres evalúa el RETURNING ya existe mi propia fila de participante,
+  // así que `is_chat_participant` pasa.
   const { data: participantRows, error: participantsError } = await supabase
     .from("chat_participants")
     .insert([
-      { chat_id: newChat.id, user_id: userId, role: "admin" },
-      { chat_id: newChat.id, user_id: participantId, role: "member" },
+      { chat_id: newChatId, user_id: userId, role: "admin" },
+      { chat_id: newChatId, user_id: participantId, role: "member" },
     ])
     .select(PARTICIPANT_COLUMNS);
   if (participantsError || !participantRows) return null;
+
+  // Ahora sí soy participante confirmado del chat, así que releer `chats`
+  // pasa la política de SELECT sin problema (nos da el `created_at` real).
+  const { data: newChat, error: refetchError } = await supabase
+    .from("chats")
+    .select(CHAT_COLUMNS)
+    .eq("id", newChatId)
+    .single();
+  if (refetchError || !newChat) return null;
 
   return mapChatRow(
     newChat as ChatRow,
