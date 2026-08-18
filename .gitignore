@@ -1,2 +1,21 @@
 .DS_Store
 ._*
+
+# artefactos de build del front-end (proyecto-mensajeria/)
+proyecto-mensajeria/node_modules/
+proyecto-mensajeria/dist/
+proyecto-mensajeria/.output/
+proyecto-mensajeria/.vite/
+proyecto-mensajeria/.nitro/
+
+# metadata interna de Lovable — es un repo git propio anidado, no forma parte
+# de la historia de este repositorio (ver docs/architecture/TECHNICAL_DEBT.md §5)
+proyecto-mensajeria/.workspace/
+
+# variables de entorno / secretos
+*.env
+*.env.local
+.env*.local
+
+# limpieza pendiente (no se puede borrar desde el puente al dispositivo)
+_to_delete/

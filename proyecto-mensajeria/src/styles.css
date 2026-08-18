@@ -1,0 +1,238 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-accent-warm: var(--accent-warm);
+  --color-accent-warm-foreground: var(--accent-warm-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-out-foreground: var(--bubble-out-foreground);
+  --color-bubble-in: var(--bubble-in);
+  --color-bubble-in-foreground: var(--bubble-in-foreground);
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --shadow-sheet: 0 -8px 30px -12px oklch(0 0 0 / 0.25);
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root {
+  --radius: 0.875rem;
+  /* Superficie neutra cálida #F1F0F7 */
+  --background: oklch(0.955 0.008 290);
+  --foreground: oklch(0.19 0.022 285);
+  --surface: oklch(1 0 0);
+  --surface-elevated: oklch(1 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.19 0.022 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.19 0.022 285);
+  /* Primario de marca #5B4FE5 */
+  --primary: oklch(0.532 0.213 281);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.945 0.01 290);
+  --secondary-foreground: oklch(0.26 0.03 285);
+  --muted: oklch(0.945 0.01 290);
+  --muted-foreground: oklch(0.5 0.024 285);
+  --accent: oklch(0.94 0.028 285);
+  --accent-foreground: oklch(0.42 0.16 281);
+  /* Acento cálido #F5A623, uso escaso */
+  --accent-warm: oklch(0.777 0.146 74);
+  --accent-warm-foreground: oklch(0.26 0.06 60);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.62 0.16 150);
+  --warning: oklch(0.777 0.146 74);
+  --border: oklch(0.9 0.012 290);
+  --border-strong: oklch(0.83 0.016 290);
+  --input: oklch(0.9 0.012 290);
+  --ring: oklch(0.532 0.213 281);
+  --bubble-out: oklch(0.532 0.213 281);
+  --bubble-out-foreground: oklch(1 0 0);
+  --bubble-in: oklch(0.955 0.008 290);
+  --bubble-in-foreground: oklch(0.19 0.022 285);
+}
+
+.dark {
+  /* Gris carbón #17151F */
+  --background: oklch(0.185 0.017 285);
+  --foreground: oklch(0.97 0.004 285);
+  --surface: oklch(0.225 0.017 287);
+  --surface-elevated: oklch(0.27 0.017 288);
+  --card: oklch(0.225 0.017 287);
+  --card-foreground: oklch(0.97 0.004 285);
+  --popover: oklch(0.27 0.017 288);
+  --popover-foreground: oklch(0.97 0.004 285);
+  --primary: oklch(0.62 0.185 281);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.27 0.017 288);
+  --secondary-foreground: oklch(0.97 0.004 285);
+  --muted: oklch(0.27 0.017 288);
+  --muted-foreground: oklch(0.73 0.016 287);
+  --accent: oklch(0.31 0.055 283);
+  --accent-foreground: oklch(0.88 0.09 285);
+  --accent-warm: oklch(0.8 0.145 76);
+  --accent-warm-foreground: oklch(0.2 0.05 60);
+  --destructive: oklch(0.68 0.2 25);
+  --destructive-foreground: oklch(0.185 0.017 285);
+  --success: oklch(0.72 0.15 150);
+  --warning: oklch(0.8 0.145 76);
+  --border: oklch(1 0 0 / 12%);
+  --border-strong: oklch(1 0 0 / 22%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.62 0.185 281);
+  --bubble-out: oklch(0.532 0.213 281);
+  --bubble-out-foreground: oklch(1 0 0);
+  /* Burbuja ajena #2A2733 */
+  --bubble-in: oklch(0.27 0.017 288);
+  --bubble-in-foreground: oklch(0.97 0.004 285);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body {
+    height: 100%;
+    overscroll-behavior-y: none;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+
+  input,
+  textarea,
+  button,
+  select {
+    font-family: inherit;
+  }
+}
+
+/* Área segura del dispositivo (notch / home indicator) */
+@utility safe-top {
+  padding-top: max(env(safe-area-inset-top), 0.75rem);
+}
+@utility safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+/* Objetivo táctil mínimo de 44px */
+@utility touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Transiciones tipo push nativo entre pantallas */
+@utility screen-enter {
+  animation: screen-push-in 0.32s var(--ease-ios) both;
+}
+@utility screen-enter-back {
+  animation: screen-push-back 0.32s var(--ease-ios) both;
+}
+
+@keyframes screen-push-in {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes screen-push-back {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@utility press {
+  transition:
+    transform 0.14s var(--ease-ios),
+    opacity 0.14s var(--ease-ios),
+    background-color 0.14s var(--ease-ios);
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+
+/* Pulso cálido del grabador de nota de voz */
+@utility pulse-warm {
+  animation: pulse-warm 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-warm {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent-warm) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 10px color-mix(in oklab, var(--color-accent-warm) 0%, transparent);
+  }
+}
