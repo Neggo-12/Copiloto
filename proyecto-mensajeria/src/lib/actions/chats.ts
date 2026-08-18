@@ -341,26 +341,31 @@ export async function findOrCreateIndividualChat(
     .insert({ id: newChatId, type: "individual", created_by: userId });
   if (chatError) return null;
 
-  // Esta sí puede pedir `.select()`: dentro del mismo INSERT, para cuando
-  // Postgres evalúa el RETURNING ya existe mi propia fila de participante,
-  // así que `is_chat_participant` pasa.
-  const { data: participantRows, error: participantsError } = await supabase
-    .from("chat_participants")
-    .insert([
-      { chat_id: newChatId, user_id: userId, role: "admin" },
-      { chat_id: newChatId, user_id: participantId, role: "member" },
-    ])
-    .select(PARTICIPANT_COLUMNS);
-  if (participantsError || !participantRows) return null;
+  // OJO: aunque insertemos las dos filas de participantes en la MISMA
+  // sentencia, Postgres NO deja que el RETURNING de una fila "vea" a su
+  // fila hermana insertada en ese mismo INSERT para efectos de RLS — la
+  // política de lectura (`is_chat_participant`) sigue sin encontrar mi
+  // propio registro en ese instante. Por eso insertamos también sin
+  // `.select()` aquí (esto seguía dando 403 con la versión anterior).
+  const { error: participantsError } = await supabase.from("chat_participants").insert([
+    { chat_id: newChatId, user_id: userId, role: "admin" },
+    { chat_id: newChatId, user_id: participantId, role: "member" },
+  ]);
+  if (participantsError) return null;
 
-  // Ahora sí soy participante confirmado del chat, así que releer `chats`
-  // pasa la política de SELECT sin problema (nos da el `created_at` real).
-  const { data: newChat, error: refetchError } = await supabase
-    .from("chats")
-    .select(CHAT_COLUMNS)
-    .eq("id", newChatId)
-    .single();
+  // Recién ahora, en una consulta NUEVA y aparte, mi fila de participante
+  // ya quedó confirmada (misma transacción implícita, visible entre
+  // sentencias) — así que tanto releer `chats` como leer `chat_participants`
+  // pasan sus políticas de RLS sin problema.
+  const [
+    { data: newChat, error: refetchError },
+    { data: participantRows, error: participantsFetchError },
+  ] = await Promise.all([
+    supabase.from("chats").select(CHAT_COLUMNS).eq("id", newChatId).single(),
+    supabase.from("chat_participants").select(PARTICIPANT_COLUMNS).eq("chat_id", newChatId),
+  ]);
   if (refetchError || !newChat) return null;
+  if (participantsFetchError || !participantRows) return null;
 
   return mapChatRow(
     newChat as ChatRow,
