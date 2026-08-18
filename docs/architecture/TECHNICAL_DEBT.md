@@ -103,3 +103,24 @@ que aparece en la pestaña del navegador al abrir la app. Revisado el resto del 
 ningún otro logo o watermark de Lovable inyectado en la UI — solo el favicon. Para
 quitarlo hace falta un ícono real de Copiloto (256×256, `.ico` o `.png`); en cuanto se
 tenga el diseño de marca, se reemplaza ese único archivo.
+
+## 10. Almacenamiento de sesión de Auth: en memoria (temporal, a propósito)
+
+**2026-08-18.** `src/lib/supabase/client.ts` guarda la sesión de Supabase Auth en un
+adapter **en memoria**, no en `localStorage`. Motivo: la regla de seguridad del
+fundador prohíbe `localStorage` para datos sensibles, y el plan a largo plazo
+(`@capacitor/preferences`, almacenamiento nativo seguro) **también cae a
+`localStorage` en la web** hasta que la app se empaquete de verdad con Capacitor — es
+decir, usarlo hoy no resolvería el problema, solo lo escondería. Costo aceptado: la
+sesión no sobrevive a un refresh de página durante esta fase de pruebas (hay que
+volver a pedir el OTP). Reemplazar por `@capacitor/preferences` en cuanto exista el
+empaquetado nativo real — ver `docs/decisions/README.md`.
+
+## 11. `completeOnboarding()` sin UI de error
+
+**2026-08-18.** `completeOnboarding()` en `AppStore.tsx` ahora es async y puede
+fallar (sin sesión activa, error de Postgres al guardar `profiles`, etc.). Por ahora
+el único manejo es un `console.error` en `src/routes/index.tsx` — no hay pantalla ni
+mensaje visible para el usuario si falla. Aceptado como corte de alcance de esta
+iteración (el flujo feliz con Test OTP funciona de punta a punta); pendiente antes de
+producción.

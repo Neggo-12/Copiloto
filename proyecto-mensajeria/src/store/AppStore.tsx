@@ -14,6 +14,7 @@ import type {
   UserProfile,
 } from "@/lib/domain/types";
 import { DEFAULT_COUNTRY_CODE } from "@/lib/domain/countries";
+import { supabase } from "@/lib/supabase/client";
 
 export type ThemeMode = "light" | "dark";
 
@@ -57,7 +58,7 @@ interface AppStoreValue {
   setPermissionStatus: (key: PermissionKey, status: PermissionStatus) => void;
 
   currentUser: UserProfile | null;
-  completeOnboarding: () => UserProfile;
+  completeOnboarding: () => Promise<UserProfile>;
   /** Aplica un cambio al perfil de la sesión actual (usado por Perfil/Ajustes). */
   updateCurrentUser: (updater: (user: UserProfile) => UserProfile) => void;
   signOut: () => void;
@@ -95,18 +96,47 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setPermissions((prev) => ({ ...prev, [key]: status }));
   }, []);
 
-  const completeOnboarding = useCallback((): UserProfile => {
+  const completeOnboarding = useCallback(async (): Promise<UserProfile> => {
     const now = new Date().toISOString();
+
+    // La sesión real ya existe en este punto: se crea en verifyPhoneOtp()
+    // (src/lib/actions/auth.ts) cuando el usuario confirma el OTP en OtpStep.
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (!authUser) {
+      throw new Error(
+        "No hay sesión de Supabase activa. Verifica el celular antes de completar el registro.",
+      );
+    }
+
+    const displayName = onboardingDraft.displayName.trim() || "Yo";
+    const about = onboardingDraft.about.trim();
+    const email = onboardingDraft.email.trim() || null;
+
+    const { error } = await supabase.from("profiles").upsert({
+      id: authUser.id,
+      phone: onboardingDraft.phoneNumber,
+      phone_country_code: onboardingDraft.phoneCountryCode,
+      email,
+      display_name: displayName,
+      avatar_url: onboardingDraft.avatarUrl,
+      about,
+    });
+    if (error) {
+      throw new Error(`No se pudo guardar el perfil: ${error.message}`);
+    }
+
     const user: UserProfile = {
-      id: "user_me",
-      displayName: onboardingDraft.displayName.trim() || "Yo",
-      about: onboardingDraft.about.trim(),
+      id: authUser.id,
+      displayName,
+      about,
       avatarUrl: onboardingDraft.avatarUrl,
       phoneNumber: onboardingDraft.phoneNumber,
       phoneCountryCode: onboardingDraft.phoneCountryCode,
-      email: onboardingDraft.email.trim() || null,
+      email,
       isPhoneVerified: true,
-      isEmailVerified: Boolean(onboardingDraft.email.trim()),
+      isEmailVerified: Boolean(email),
       lastSeenAt: now,
       isOnline: true,
       createdAt: now,

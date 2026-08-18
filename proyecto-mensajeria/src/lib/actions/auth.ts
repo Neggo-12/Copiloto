@@ -1,7 +1,10 @@
 /**
  * Acciones aisladas y reutilizables del flujo de autenticación.
- * Fase 1: simuladas en cliente. Fase 2: mismas firmas contra backend real.
+ * Fase 2: verificación telefónica contra Supabase Auth real (Test OTP mientras
+ * no haya proveedor de SMS de producción — ver docs/decisions/README.md).
+ * La verificación de correo sigue simulada por ahora (secundaria en la spec).
  */
+import { supabase } from "@/lib/supabase/client";
 
 const SIMULATED_LATENCY_MS = 900;
 
@@ -18,13 +21,19 @@ export interface RequestPhoneOtpInput {
 export interface RequestPhoneOtpResult {
   ok: boolean;
   resendAvailableInSeconds: number;
+  errorMessage?: string;
 }
 
-/** Envía (simula) el código OTP al celular. */
+/** Pide a Supabase Auth que envíe (o, con Test OTP, simule) el código por SMS. */
 export async function requestPhoneOtp(input: RequestPhoneOtpInput): Promise<RequestPhoneOtpResult> {
-  await delay(SIMULATED_LATENCY_MS);
   if (!input.phoneNumber.startsWith("+")) {
-    return { ok: false, resendAvailableInSeconds: 0 };
+    return { ok: false, resendAvailableInSeconds: 0, errorMessage: "Número inválido." };
+  }
+  const { error } = await supabase.auth.signInWithOtp({
+    phone: input.phoneNumber,
+  });
+  if (error) {
+    return { ok: false, resendAvailableInSeconds: 0, errorMessage: error.message };
   }
   return { ok: true, resendAvailableInSeconds: OTP_RESEND_SECONDS };
 }
@@ -36,22 +45,36 @@ export interface VerifyOtpInput {
 export interface VerifyOtpResult {
   ok: boolean;
   errorMessage?: string;
+  /** Id real del usuario en Supabase Auth (auth.users.id) tras verificar. */
+  userId?: string;
 }
 
-/** Verifica el OTP. Simulado: acepta cualquier código de 6 dígitos. */
+/** Verifica el OTP contra Supabase Auth. Crea la sesión si el código es correcto. */
 export async function verifyPhoneOtp(input: VerifyOtpInput): Promise<VerifyOtpResult> {
-  await delay(SIMULATED_LATENCY_MS);
-  const isSixDigits = /^\d{6}$/.test(input.code);
-  return isSixDigits
-    ? { ok: true }
-    : { ok: false, errorMessage: "El código debe tener 6 dígitos." };
+  if (!/^\d{6}$/.test(input.code)) {
+    return { ok: false, errorMessage: "El código debe tener 6 dígitos." };
+  }
+  const { data, error } = await supabase.auth.verifyOtp({
+    phone: input.phoneNumber,
+    token: input.code,
+    type: "sms",
+  });
+  if (error || !data.user) {
+    return { ok: false, errorMessage: error?.message ?? "No se pudo verificar el código." };
+  }
+  return { ok: true, userId: data.user.id };
 }
 
 export interface RequestEmailVerificationInput {
   email: string;
 }
 
-/** Envía (simula) el código/enlace de verificación al correo. */
+/**
+ * Envía (simula) el código/enlace de verificación al correo.
+ * Sigue simulado a propósito: la spec marca el correo como identidad
+ * secundaria y el flujo real (link magic-link vs. OTP) queda para cuando
+ * se aborde ese bloque — ver MISSING_CAPABILITIES.md.
+ */
 export async function requestEmailVerification(
   input: RequestEmailVerificationInput,
 ): Promise<{ ok: boolean }> {

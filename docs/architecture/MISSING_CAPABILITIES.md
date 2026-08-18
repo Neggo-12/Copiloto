@@ -21,12 +21,19 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 - Redis + BullMQ para estado caliente/jobs (recordatorios por tiempo, cooldowns).
 - WebSockets/tiempo real: la tabla existe, pero no se activó ninguna suscripción
   Realtime ni se escribió código que la use.
-- Auth real: falta configurar el proveedor de SMS (Twilio/MessageBird/Vonage, sin
-  decidir) y el proveedor de correo para el flujo de verificación.
+- Auth real: **parcial, 2026-08-18.** Verificación telefónica ya conectada a
+  Supabase Auth real (`signInWithOtp`/`verifyOtp`) usando **Test OTP** (números de
+  prueba, sin costo) mientras no se decida el proveedor de SMS de producción
+  (Twilio/MessageBird/Vonage). Falta: registrar los números de Test OTP en el
+  Dashboard de Supabase (paso manual, sin tool de MCP para esto), y el proveedor
+  de correo real para el flujo de verificación de email (sigue simulado).
 - Vistas de `unreadCount`/`lastMessagePreview` (pendiente del ADR-0001).
 - Job/Edge Function de limpieza de `status-media` tras 24h.
-- Cliente API en el frontend (`proyecto-mensajeria/` no tiene `@supabase/supabase-js`
-  instalado ni ningún fetch/WS client todavía; todo sigue siendo mock-data en memoria).
+- Cliente API en el frontend: **resuelto parcialmente, 2026-08-18.**
+  `@supabase/supabase-js` ya está instalado y conectado (`src/lib/supabase/client.ts`,
+  con almacenamiento de sesión en memoria — ver nota de seguridad en ese archivo —
+  y `src/lib/actions/auth.ts` ya habla con el backend real para OTP). El resto de
+  dominios (chats, contactos, notas, estados) siguen 100% en mock-data en memoria.
 
 ## Asistente de voz (visión documentada, cero implementación)
 

@@ -80,7 +80,13 @@ function OnboardingFlow() {
       return (
         <PermissionsStep
           onBack={() => setOnboardingStep("profile")}
-          onFinish={() => completeOnboarding()}
+          onFinish={() => {
+            completeOnboarding().catch((error: unknown) => {
+              // TODO: mostrar este error en la propia pantalla en vez de solo loguearlo
+              // (ver TECHNICAL_DEBT.md — pendiente de UI de error para completeOnboarding).
+              console.error("No se pudo completar el registro:", error);
+            });
+          }}
         />
       );
     default:

@@ -19,11 +19,17 @@ front-end tiene su propio changelog ("Historial de decisiones") dentro de
 | 2026-08-18 | Esquema real de base de datos aplicado sobre "Copiloto": 13 tablas, RLS en todas, 4 buckets de Storage, funciones helper restringidas a `authenticated`. Se agregó CI (GitHub Actions: lint+typecheck+build) para el front-end. | `docs/decisions/ADR-0001-esquema-backend.md`, `.github/workflows/ci.yml` |
 | 2026-08-18 | Se regeneró `bun.lock` del front-end: el original de Lovable apuntaba a su proxy privado de npm, lo cual rompía CI (403) aunque funcionara en instalaciones locales normales. Se corrigieron además ~100 errores de formato (prettier/eslint) preexistentes en el código de Lovable, con `--fix` (solo estilo, sin cambios de lógica). | `docs/architecture/TECHNICAL_DEBT.md` §1 |
 | 2026-08-18 | Confirmado que "el logo de Lovable" que aparece al abrir la app es únicamente el favicon por defecto (`public/favicon.ico`); no hay ningún otro watermark de Lovable en la UI. Reemplazo pospuesto hasta tener un ícono propio de Copiloto — pedido explícito del fundador de dejarlo para más adelante. | `docs/architecture/TECHNICAL_DEBT.md` §9 |
+| 2026-08-18 | Se conectó la verificación telefónica del onboarding a Supabase Auth real, usando **Test OTP** (números de prueba sin proveedor de SMS pagado) mientras se decide el proveedor de producción. La sesión se guarda en memoria (no localStorage) mientras la app corra solo como web/PWA, por la regla de seguridad del fundador; se migra a `@capacitor/preferences` (almacenamiento nativo) cuando exista empaquetado real. `completeOnboarding()` ahora crea/actualiza la fila real en `profiles`. | `proyecto-mensajeria/src/lib/supabase/client.ts`, `src/lib/actions/auth.ts`, `src/store/AppStore.tsx` |
 
 ## Pendiente de decidir
 
-- Proveedor de SMS/OTP para verificación telefónica en Supabase Auth (Twilio /
-  MessageBird / Vonage).
+- Proveedor de SMS/OTP de **producción** para verificación telefónica (Twilio /
+  MessageBird / Vonage) — hoy se usa Test OTP (sin costo, números fijos) como
+  solución interina, elegida explícitamente por el fundador el 2026-08-18.
+- Registrar los números de Test OTP y habilitar el proveedor Phone en el Dashboard
+  de Supabase Auth (paso manual pendiente de hacer — ver paso a paso entregado).
+- Verificación de correo real (hoy sigue simulada; la spec la trata como
+  identidad secundaria).
 - Cruce de nombres del esquema de `docs/architecture/Especificacion-Backend-Supabase-CoPiloto.md`
   contra el código real exportado en `proyecto-mensajeria/` (ya inspeccionado en la
   auditoría del 18 de agosto; el modelo de `src/lib/domain/types.ts` coincide en general
