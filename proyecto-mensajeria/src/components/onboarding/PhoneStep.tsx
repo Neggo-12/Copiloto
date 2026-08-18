@@ -16,6 +16,7 @@ export function PhoneStep({ onBack, onSent }: { onBack: () => void; onSent: () =
   const { onboardingDraft, updateOnboardingDraft } = useAppStore();
   const [isPickerOpen, setPickerOpen] = useState(false);
   const [isSending, setSending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const country = findCountry(onboardingDraft.phoneCountryCode);
   const isValid = isValidNationalNumber(onboardingDraft.phoneNationalNumber, country);
@@ -23,12 +24,15 @@ export function PhoneStep({ onBack, onSent }: { onBack: () => void; onSent: () =
   const handleSubmit = async () => {
     if (!isValid) return;
     setSending(true);
+    setErrorMessage(null);
     const phoneNumber = toE164(onboardingDraft.phoneNationalNumber, country);
     const result = await requestPhoneOtp({ phoneNumber });
     setSending(false);
     if (result.ok) {
       updateOnboardingDraft({ phoneNumber });
       onSent();
+    } else {
+      setErrorMessage(result.errorMessage ?? "No se pudo enviar el código. Intenta de nuevo.");
     }
   };
 
@@ -106,6 +110,8 @@ export function PhoneStep({ onBack, onSent }: { onBack: () => void; onSent: () =
             El número debe tener {country.nationalDigits} dígitos.
           </p>
         )}
+
+        {errorMessage && <p className="mt-3 text-[13px] text-destructive">{errorMessage}</p>}
       </div>
 
       <ScreenFooter>
