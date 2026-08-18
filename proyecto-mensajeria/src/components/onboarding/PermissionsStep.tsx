@@ -23,24 +23,45 @@ export function PermissionsStep({
   onFinish,
 }: {
   onBack: () => void;
-  onFinish: () => void;
+  /** Puede lanzar (ej. si falla guardar el perfil) — ver el try/catch abajo. */
+  onFinish: () => Promise<void>;
 }) {
   const { setPermissionStatus } = useAppStore();
   const [index, setIndex] = useState(0);
   const [isBusy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const permission = PERMISSION_SEQUENCE[index]!;
   const Icon = PERMISSION_ICONS[permission.key];
   const isLast = index === PERMISSION_SEQUENCE.length - 1;
 
-  const advance = () => (isLast ? onFinish() : setIndex((value) => value + 1));
+  const advance = async () => {
+    if (!isLast) {
+      setIndex((value) => value + 1);
+      return;
+    }
+    // Último permiso: aquí es donde se guarda el perfil de verdad
+    // (completeOnboarding, vía onFinish). Si falla, se muestra el motivo en
+    // vez de dejar al usuario atascado sin ninguna explicación — ver
+    // TECHNICAL_DEBT.md §11.
+    try {
+      await onFinish();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo completar el registro. Intenta de nuevo.",
+      );
+    }
+  };
 
   const resolvePermission = async (decision: "grant" | "deny") => {
     setBusy(true);
+    setErrorMessage(null);
     const result = await requestNativePermission(permission.key, decision);
     setPermissionStatus(result.key, result.status);
+    await advance();
     setBusy(false);
-    advance();
   };
 
   return (
@@ -72,6 +93,8 @@ export function PermissionsStep({
         <p className="mt-6 text-[13px] leading-relaxed text-muted-foreground">
           Puedes cambiar este permiso en cualquier momento desde Ajustes.
         </p>
+
+        {errorMessage && <p className="mt-4 text-[13px] text-destructive">{errorMessage}</p>}
       </div>
 
       <ScreenFooter>
