@@ -109,9 +109,11 @@ function mapMessageRow(row: MessageRow): Message {
     kind: row.type,
     body: row.content ?? "",
     attachment,
-    // Estado simplificado por ahora: "sent" al insertarse, "read" en cuanto
-    // llega el evento en vivo de message_status (ver la suscripción en
-    // useChats.ts). No se distingue "delivered" todavía.
+    // Valor de partida al insertarse o al llegar por Realtime; para
+    // mensajes ya existentes, `fetchChatsAndMessages` lo pisa enseguida con
+    // el estado real vía `hydrateMessageStatuses`. El resto de las
+    // transiciones (delivered/read) llegan en vivo por la suscripción a
+    // `message_status` en useChats.ts.
     status: "sent",
     createdAt: row.created_at,
     editedAt: row.edited_at,
@@ -154,6 +156,58 @@ function mapChatRow(
     adminIds: participants.filter((item) => item.role === "admin").map((item) => item.user_id),
     disappearingTtlSeconds: null,
   };
+}
+
+/**
+ * Rellena `status` con el estado real de entrega/lectura (antes quedaba
+ * siempre fijo en "sent", sin importar lo que hubiera pasado de verdad, así
+ * que al volver a entrar a un chat los chulos se "olvidaban").
+ *
+ * - Mensajes míos: mira las filas de `message_status` de LOS OTROS
+ *   participantes → "read" (chulos azules) > "delivered" (dos chulos
+ *   grises) > "sent" (un chulo, nadie lo ha confirmado todavía).
+ * - Mensajes ajenos: solo importa si YO ya lo marqué "read" — se usa para
+ *   el conteo de no leídos, no se muestran chulos sobre burbujas ajenas.
+ */
+async function hydrateMessageStatuses(messages: Message[], userId: UserId): Promise<void> {
+  const messageIds = messages.map((message) => message.id);
+  if (messageIds.length === 0) return;
+  const { data: statusRows } = await supabase
+    .from("message_status")
+    .select("message_id, user_id, status")
+    .in("message_id", messageIds);
+
+  const rowsByMessage = new Map<string, { user_id: string; status: string }[]>();
+  for (const row of (statusRows ?? []) as {
+    message_id: string;
+    user_id: string;
+    status: string;
+  }[]) {
+    const list = rowsByMessage.get(row.message_id) ?? [];
+    list.push({ user_id: row.user_id, status: row.status });
+    rowsByMessage.set(row.message_id, list);
+  }
+
+  for (const message of messages) {
+    const rows = rowsByMessage.get(message.id) ?? [];
+    if (message.senderId === userId) {
+      const others = rows.filter((row) => row.user_id !== userId);
+      message.status = others.some((row) => row.status === "read")
+        ? "read"
+        : others.some((row) => row.status === "delivered")
+          ? "delivered"
+          : "sent";
+    } else {
+      const mine = rows.find((row) => row.user_id === userId);
+      message.status = mine?.status === "read" ? "read" : "delivered";
+    }
+  }
+}
+
+/** Marca (de verdad, en Supabase) que estos mensajes ya llegaron a mi dispositivo. */
+export async function markMessagesDeliveredRemote(messageIds: MessageId[]): Promise<void> {
+  if (messageIds.length === 0) return;
+  await supabase.rpc("mark_messages_delivered", { p_message_ids: messageIds });
 }
 
 /** Carga todos los chats reales del usuario junto con sus mensajes. */
@@ -205,6 +259,7 @@ export async function fetchChatsAndMessages(
   });
 
   const messages: Message[] = ((messageRows ?? []) as MessageRow[]).map(mapMessageRow);
+  await hydrateMessageStatuses(messages, userId);
 
   const myParticipantByChat = new Map(
     ((myParticipantRows ?? []) as ChatParticipantRow[]).map((row) => [row.chat_id, row]),

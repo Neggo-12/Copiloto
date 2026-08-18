@@ -45,6 +45,16 @@ export function useChats() {
       if (cancelled) return;
       setState(loaded);
       setLoading(false);
+      // "Entregado" (dos chulos grises) no depende de tener el chat abierto,
+      // solo de que mi app ya haya recibido el mensaje — así que se confirma
+      // apenas termina la carga inicial, para todo lo que llegó mientras no
+      // estaba conectado.
+      const undeliveredFromOthers = loaded.messages
+        .filter((message) => message.senderId !== CURRENT_USER_ID && message.status !== "read")
+        .map((message) => message.id);
+      if (undeliveredFromOthers.length > 0) {
+        void chatActions.markMessagesDeliveredRemote(undeliveredFromOthers);
+      }
     });
     return () => {
       cancelled = true;
@@ -61,6 +71,7 @@ export function useChats() {
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
           const message = chatActions.mapRealtimeMessageRow(payload.new);
+          let applied = false;
           setState((prev) => {
             // Ya lo tengo (eco de mi propio insert, reconciliado en sendTextMessage).
             if (prev.messages.some((item) => item.id === message.id)) return prev;
@@ -68,8 +79,15 @@ export function useChats() {
             // otro evento un instante después) — se ignora, el otro handler
             // se encarga de traerlo completo.
             if (!prev.chats.some((chat) => chat.id === message.chatId)) return prev;
+            applied = true;
             return chatActions.applyIncomingMessage(prev, message);
           });
+          // Confirma "entregado" apenas mi app recibe el mensaje en vivo —
+          // igual que arriba, esto vive fuera del updater para no duplicar
+          // el efecto de red si React lo reinvoca.
+          if (applied && message.senderId !== CURRENT_USER_ID) {
+            void chatActions.markMessagesDeliveredRemote([message.id]);
+          }
         },
       )
       .on(
@@ -105,14 +123,23 @@ export function useChats() {
             user_id?: string;
             status?: string;
           };
-          if (row.status !== "read" || row.user_id === CURRENT_USER_ID || !row.message_id) return;
+          // Esto es la confirmación (delivered/read) de OTRA persona sobre
+          // UN MENSAJE MÍO — lo que yo mismo confirmo sobre mensajes ajenos
+          // no debe tocar el estado de mis propias burbujas.
+          if (row.user_id === CURRENT_USER_ID || !row.message_id) return;
+          if (row.status !== "read" && row.status !== "delivered") return;
+          const nextStatus = row.status;
           setState((prev) => ({
             ...prev,
-            messages: prev.messages.map((message) =>
-              message.id === row.message_id && message.senderId === CURRENT_USER_ID
-                ? { ...message, status: "read" }
-                : message,
-            ),
+            messages: prev.messages.map((message) => {
+              if (message.id !== row.message_id || message.senderId !== CURRENT_USER_ID) {
+                return message;
+              }
+              // No bajar de "read" a "delivered" si el evento llega
+              // desordenado (mismo guard que ya tiene la función RPC).
+              if (message.status === "read" && nextStatus === "delivered") return message;
+              return { ...message, status: nextStatus };
+            }),
           }));
         },
       )
