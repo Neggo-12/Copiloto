@@ -59,6 +59,15 @@ interface AppStoreValue {
 
   currentUser: UserProfile | null;
   completeOnboarding: () => Promise<UserProfile>;
+  /**
+   * Se llama justo después de verificar el OTP del celular. Si ese usuario
+   * (por id de Supabase Auth) ya tiene una fila en `profiles` — o sea, ya
+   * completó el registro antes —, carga ese perfil y salta directo a la app
+   * principal, igual que WhatsApp: un número ya registrado y verificado no
+   * vuelve a pedir correo/nombre/permisos. Devuelve `true` si saltó (y el
+   * llamador no debe seguir el onboarding), `false` si es un usuario nuevo.
+   */
+  resumeIfRegistered: (userId: string) => Promise<boolean>;
   /** Aplica un cambio al perfil de la sesión actual (usado por Perfil/Ajustes). */
   updateCurrentUser: (updater: (user: UserProfile) => UserProfile) => void;
   signOut: () => void;
@@ -146,6 +155,37 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return user;
   }, [onboardingDraft]);
 
+  const resumeIfRegistered = useCallback(async (userId: string): Promise<boolean> => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(
+        "id, phone, phone_country_code, email, display_name, avatar_url, about, last_seen_at, created_at",
+      )
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error || !data) return false;
+
+    const user: UserProfile = {
+      id: data.id,
+      displayName: data.display_name,
+      about: data.about ?? "",
+      avatarUrl: data.avatar_url,
+      phoneNumber: data.phone,
+      phoneCountryCode: data.phone_country_code,
+      email: data.email,
+      isPhoneVerified: true,
+      isEmailVerified: Boolean(data.email),
+      lastSeenAt: data.last_seen_at,
+      isOnline: true,
+      createdAt: data.created_at,
+    };
+
+    setCurrentUser(user);
+    setOnboardingStep("done");
+    return true;
+  }, []);
+
   const updateCurrentUser = useCallback((updater: (user: UserProfile) => UserProfile) => {
     setCurrentUser((prev) => (prev ? updater(prev) : prev));
   }, []);
@@ -169,6 +209,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setPermissionStatus,
       currentUser,
       completeOnboarding,
+      resumeIfRegistered,
       updateCurrentUser,
       signOut,
     }),
@@ -182,6 +223,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setPermissionStatus,
       currentUser,
       completeOnboarding,
+      resumeIfRegistered,
       updateCurrentUser,
       signOut,
     ],

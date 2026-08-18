@@ -119,20 +119,29 @@ async function signInDevShadowUser(phoneNumber: string): Promise<VerifyOtpResult
     return { ok: true, userId: signUp.data.session.user.id };
   }
 
-  // Si `signUp` devolvió un error explícito (proveedor de email desactivado,
-  // política de contraseña, rate limit, etc.), esa es la causa real y NO
-  // existe ninguna cuenta creada — mostrar este mensaje en vez del genérico
-  // "Invalid login credentials" que devolvería el `signInWithPassword` de
-  // abajo (que fallaría igual, pero ocultando el motivo verdadero).
-  if (signUp.error && !signUp.data.user) {
+  // "User already registered" significa que la cuenta sombra ya existe (caso
+  // normal en visitas repetidas del mismo número de prueba) — no es un error
+  // real, hay que caer a `signInWithPassword` como con cualquier otro motivo
+  // de "no hubo sesión nueva".
+  const alreadyRegistered = Boolean(
+    signUp.error?.message.toLowerCase().includes("already registered"),
+  );
+
+  // Si `signUp` devolvió un error explícito y distinto (proveedor de email
+  // desactivado, política de contraseña, rate limit, etc.), esa es la causa
+  // real y NO existe ninguna cuenta creada — mostrar este mensaje en vez del
+  // genérico "Invalid login credentials" que devolvería el
+  // `signInWithPassword` de abajo (que fallaría igual, pero ocultando el
+  // motivo verdadero).
+  if (signUp.error && !alreadyRegistered && !signUp.data.user) {
     return {
       ok: false,
       errorMessage: `No se pudo crear la cuenta de prueba: ${signUp.error.message}`,
     };
   }
 
-  // Llegamos aquí solo si el usuario ya existía (caso normal en visitas
-  // repetidas) y por eso no hubo sesión nueva en el signUp.
+  // Llegamos aquí porque el usuario ya existía (visita repetida) y por eso
+  // no hubo sesión nueva en el signUp.
   const signIn = await supabase.auth.signInWithPassword({ email, password });
   if (signIn.data.session?.user) {
     return { ok: true, userId: signIn.data.session.user.id };

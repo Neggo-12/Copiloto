@@ -10,7 +10,7 @@ import {
 import { useAppStore } from "@/store/AppStore";
 
 export function OtpStep({ onBack, onVerified }: { onBack: () => void; onVerified: () => void }) {
-  const { onboardingDraft } = useAppStore();
+  const { onboardingDraft, resumeIfRegistered } = useAppStore();
   const [code, setCode] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isVerifying, setVerifying] = useState(false);
@@ -30,11 +30,18 @@ export function OtpStep({ onBack, onVerified }: { onBack: () => void; onVerified
         phoneNumber: onboardingDraft.phoneNumber,
         code: submitted,
       });
+      if (!result.ok) {
+        setVerifying(false);
+        setErrorMessage(result.errorMessage ?? "Código inválido.");
+        return;
+      }
+      // Número ya registrado y verificado antes (mismo comportamiento que
+      // WhatsApp): salta directo a la app, sin repetir correo/perfil/permisos.
+      const resumed = result.userId ? await resumeIfRegistered(result.userId) : false;
       setVerifying(false);
-      if (result.ok) onVerified();
-      else setErrorMessage(result.errorMessage ?? "Código inválido.");
+      if (!resumed) onVerified();
     },
-    [onboardingDraft.phoneNumber, onVerified],
+    [onboardingDraft.phoneNumber, onVerified, resumeIfRegistered],
   );
 
   const handleResend = async () => {
