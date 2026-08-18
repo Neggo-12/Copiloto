@@ -11,12 +11,15 @@ aplicados sobre el proyecto Supabase "Copiloto" — 13 tablas, RLS en todas, 4 b
 con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 `supabase/migrations/`). Sigue faltando todo lo demás:
 
-- Proyecto NestJS + estructura modular monolith (`identity/users/devices/contacts/
-  messaging/media/notifications/assistant/reminders/location/maps/navigation/
-  emergency/mobility/traffic/audit/simulation`) — o, alternativa más simple para el
-  MVP: consumir Supabase directamente desde el front-end (PostgREST + Realtime +
-  Storage del SDK) sin una capa NestJS intermedia todavía. Es una decisión pendiente,
-  no tomada por esta auditoría.
+- **Resuelto 2026-08-18 (decisión del fundador):** se introduce `backend/`
+  (NestJS, modular monolith) ya, en paralelo a `proyecto-mensajeria/` que sigue
+  consumiendo Supabase directo (no se migra, no hay evidencia que lo justifique).
+  Primer slice: `SupabaseModule` (cliente service role), `SupabaseAuthGuard`
+  (valida JWT de Supabase Auth), `GET /health`, `GET /emergency/vehicles/me`. Ver
+  `docs/decisions/ADR-0007-backend-nestjs.md`. Los dominios restantes
+  (`identity/users/devices/contacts/messaging/media/notifications/assistant/
+  reminders/location/maps/navigation/emergency/mobility/traffic/audit/simulation`)
+  se agregan como módulos conforme haya trabajo real, no todos de una vez.
 - **Resuelto 2026-08-18:** PostGIS 3.3.7 habilitado en el proyecto (schema
   `extensions`), como parte de la Fase 1 del cronograma de Emergency Corridor.
 - Redis + BullMQ para estado caliente/jobs (recordatorios por tiempo, cooldowns).

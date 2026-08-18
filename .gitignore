@@ -8,6 +8,11 @@ proyecto-mensajeria/.output/
 proyecto-mensajeria/.vite/
 proyecto-mensajeria/.nitro/
 
+# artefactos de build del backend (backend/ — NestJS)
+backend/node_modules/
+backend/dist/
+backend/.env
+
 # metadata interna de Lovable — es un repo git propio anidado, no forma parte
 # de la historia de este repositorio (ver docs/architecture/TECHNICAL_DEBT.md §5)
 proyecto-mensajeria/.workspace/
