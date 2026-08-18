@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as chatActions from "@/lib/actions/chats";
 import * as groupActions from "@/lib/actions/groups";
 import type { ChatsState } from "@/lib/actions/chats";
@@ -30,6 +30,12 @@ const EMPTY_STATE: ChatsState = { chats: [], messages: [] };
 export function useChats() {
   const [state, setState] = useState<ChatsState>(EMPTY_STATE);
   const [isLoading, setLoading] = useState(true);
+  // Candado en memoria para no crear dos chats 1-a-1 duplicados cuando
+  // "Enviar mensaje" se toca dos veces seguidas (o Strict Mode reinvoca el
+  // handler) antes de que la primera llamada a Supabase termine: sin esto,
+  // las dos llamadas ven "no existe todavía" en el estado local y las dos
+  // terminan creando su propio chat.
+  const pendingChatByParticipant = useRef(new Map<UserId, Promise<ChatId>>());
 
   // Carga inicial de chats y mensajes reales del usuario.
   useEffect(() => {
@@ -128,11 +134,18 @@ export function useChats() {
   }, []);
 
   const openChat = useCallback((chatId: ChatId) => {
+    // OJO: el updater de setState debe quedar puro. React (en desarrollo,
+    // con Strict Mode) lo invoca dos veces para detectar impurezas — si el
+    // efecto de red (marcar como leído en Supabase) viviera adentro, se
+    // dispararía dos veces por cada apertura de chat. Por eso solo se
+    // calculan los ids acá (lectura pura) y la llamada real a Supabase se
+    // hace una sola vez, después, fuera del updater.
+    let unreadIds: MessageId[] = [];
     setState((prev) => {
       // Los mensajes ajenos que aún no estén "read" se marcan como leídos de
       // verdad en Supabase (mensaje_status) — así el que los mandó ve el
       // check azul en su propio celular, en vivo.
-      const unreadIds = prev.messages
+      unreadIds = prev.messages
         .filter(
           (message) =>
             message.chatId === chatId &&
@@ -140,11 +153,11 @@ export function useChats() {
             message.status !== "read",
         )
         .map((message) => message.id);
-      if (unreadIds.length > 0) {
-        void chatActions.markChatReadRemote(chatId, CURRENT_USER_ID, unreadIds);
-      }
       return chatActions.openChat(prev, chatId);
     });
+    if (unreadIds.length > 0) {
+      void chatActions.markChatReadRemote(chatId, CURRENT_USER_ID, unreadIds);
+    }
   }, []);
 
   /**
@@ -193,11 +206,21 @@ export function useChats() {
     (chatId: ChatId, body: string, replyToMessageId: MessageId | null = null) => {
       if (!body.trim()) return;
       const trimmed = body.trim();
+      // Mismo motivo que en openChat: el updater tiene que quedar puro. El
+      // insert real en Supabase (reconcileSentMessage) se dispara una sola
+      // vez, después de que setState termina, usando el id del mensaje
+      // optimista que generó la última pasada del updater. Antes esto vivía
+      // dentro del updater y, en desarrollo con Strict Mode, cada mensaje se
+      // insertaba duplicado en la base de datos.
+      let tempId: MessageId | null = null;
       setState((prev) => {
         const result = chatActions.sendTextMessage(prev, chatId, trimmed, replyToMessageId);
-        void reconcileSentMessage(result.message.id, chatId, trimmed, replyToMessageId);
+        tempId = result.message.id;
         return result.state;
       });
+      if (tempId) {
+        void reconcileSentMessage(tempId, chatId, trimmed, replyToMessageId);
+      }
     },
     [reconcileSentMessage],
   );
@@ -369,19 +392,32 @@ export function useChats() {
       );
       if (existing) return existing.id;
 
-      const chat = await chatActions.findOrCreateIndividualChat(
-        CURRENT_USER_ID,
-        participantId,
-        title,
-        avatarUrl,
-      );
-      if (!chat) return "" as ChatId;
-      setState((prev) =>
-        prev.chats.some((item) => item.id === chat.id)
-          ? prev
-          : { ...prev, chats: [chat, ...prev.chats] },
-      );
-      return chat.id as ChatId;
+      // Si ya hay una creación en curso para este mismo contacto, esperamos
+      // esa misma promesa en vez de arrancar una segunda — así un doble tap
+      // en "Enviar mensaje" no crea dos chats reales en Supabase.
+      const pending = pendingChatByParticipant.current.get(participantId);
+      if (pending) return pending;
+
+      const creation = (async () => {
+        const chat = await chatActions.findOrCreateIndividualChat(
+          CURRENT_USER_ID,
+          participantId,
+          title,
+          avatarUrl,
+        );
+        if (!chat) return "" as ChatId;
+        setState((prev) =>
+          prev.chats.some((item) => item.id === chat.id)
+            ? prev
+            : { ...prev, chats: [chat, ...prev.chats] },
+        );
+        return chat.id as ChatId;
+      })().finally(() => {
+        pendingChatByParticipant.current.delete(participantId);
+      });
+
+      pendingChatByParticipant.current.set(participantId, creation);
+      return creation;
     },
     [state.chats],
   );

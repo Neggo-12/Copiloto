@@ -436,6 +436,13 @@ function touchChat(state: ChatsState, message: Message): ChatsState {
             ...chat,
             lastMessagePreview: previewForMessage(message),
             lastMessageAt: message.createdAt,
+            // Solo suma al contador de "no leídos" si el mensaje es del otro
+            // lado — los propios (optimistas o ya confirmados) no cuentan.
+            // Antes esto se quedaba siempre en lo que trajo la carga inicial:
+            // un mensaje nuevo que llegaba en vivo nunca prendía el badge en
+            // la lista de chats.
+            unreadCount:
+              message.senderId !== CURRENT_USER_ID ? chat.unreadCount + 1 : chat.unreadCount,
           }
         : chat,
     ),

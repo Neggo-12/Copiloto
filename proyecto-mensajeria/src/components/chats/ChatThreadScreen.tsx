@@ -81,6 +81,17 @@ export function ChatThreadScreen({
     };
   }, [highlightMessageId]);
 
+  // Si llega un mensaje nuevo del otro lado mientras el chat ya está abierto
+  // (en vivo, por Realtime), también se marca como leído. Antes esto solo
+  // pasaba al entrar al chat, así que el check azul del que lo mandó no
+  // aparecía hasta que uno salía y volvía a entrar a la conversación.
+  useEffect(() => {
+    const hasUnreadFromOther = messages.some(
+      (message) => message.senderId !== CURRENT_USER_ID && message.status !== "read",
+    );
+    if (hasUnreadFromOther) controller.openChat(chatId);
+  }, [messages, chatId, controller]);
+
   const liveLocation = getActiveLiveLocation(controller.state, chatId, nowMs);
 
   if (!chat) return null;
