@@ -1,0 +1,42 @@
+name: CI — proyecto-mensajeria
+
+# Corre lint + typecheck + build en cada push/PR que toque el front-end.
+# Usa Bun (no npm) porque el proyecto trae bun.lock — así CI instala
+# exactamente lo mismo que resolvió Lovable, sin la inconsistencia npm/bun
+# documentada en docs/architecture/TECHNICAL_DEBT.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "proyecto-mensajeria/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "proyecto-mensajeria/**"
+      - ".github/workflows/ci.yml"
+
+jobs:
+  lint-typecheck-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proyecto-mensajeria
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Instalar dependencias
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build
+        run: bun run build
