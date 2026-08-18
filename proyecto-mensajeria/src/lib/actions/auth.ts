@@ -1,7 +1,8 @@
 /**
  * Acciones aisladas y reutilizables del flujo de autenticación.
- * Fase 2: verificación telefónica contra Supabase Auth real (Test OTP mientras
- * no haya proveedor de SMS de producción — ver docs/decisions/README.md).
+ * Fase 2: verificación telefónica contra Supabase Auth real, con un atajo de
+ * prueba (`DEV_TEST_PHONES`, ver más abajo) para probar sin depender de un
+ * proveedor de SMS pago mientras eso se decide.
  * La verificación de correo sigue simulada por ahora (secundaria en la spec).
  */
 import { supabase } from "@/lib/supabase/client";
@@ -15,6 +16,97 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * ── Atajo de números de prueba (TEMPORAL — quitar antes de producción) ──
+ *
+ * Supabase Auth necesita un proveedor de SMS real (Twilio/MessageBird/Vonage)
+ * para enviar códigos de verdad. Su función "Test OTP" (números fijos sin
+ * enviar SMS) solo existe para instalaciones self-hosted, NO para proyectos
+ * en la nube como el nuestro — lo confirmamos el 2026-08-18 tras varios
+ * intentos fallidos de encontrarla en el Dashboard.
+ *
+ * Mientras se decide/paga un proveedor real, esta lista deja pasar un puñado
+ * de números fijos (los del fundador y las personas con las que va a probar
+ * la mensajería) sin enviar SMS. Para esos números, en vez de hablar con el
+ * flujo de teléfono de Supabase, creamos/iniciamos sesión en una cuenta
+ * "sombra" con email+password sintéticos — sigue siendo un usuario y una
+ * sesión 100% reales de Supabase Auth (RLS y todo lo demás funcionan igual),
+ * solo que la verificación del código no pasa por ningún SMS.
+ *
+ * Formato en `.env.local` (nunca se commitea):
+ *   VITE_DEV_TEST_PHONES="+573024330410:123456,+573001112233:654321"
+ *
+ * Riesgo aceptado y documentado (ver TECHNICAL_DEBT.md): las variables
+ * VITE_* quedan visibles en el bundle de JS si esta build se publica en una
+ * URL pública. Aceptable mientras el proyecto solo se prueba localmente
+ * entre el fundador y un puñado de personas de confianza — HAY QUE quitar
+ * esta lista (o esconderla detrás de una función server-side) antes de
+ * cualquier despliegue público real.
+ */
+interface DevTestPhone {
+  phoneNumber: string;
+  code: string;
+}
+
+function parseDevTestPhones(): DevTestPhone[] {
+  const raw: string | undefined = import.meta.env["VITE_DEV_TEST_PHONES"];
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((entry: string) => entry.trim())
+    .filter(Boolean)
+    .flatMap((entry: string) => {
+      const [phoneNumber, code] = entry.split(":").map((part: string) => part.trim());
+      return phoneNumber && code ? [{ phoneNumber, code }] : [];
+    });
+}
+
+const DEV_TEST_PHONES = parseDevTestPhones();
+
+function findDevTestPhone(phoneNumber: string): DevTestPhone | undefined {
+  return DEV_TEST_PHONES.find((entry) => entry.phoneNumber === phoneNumber);
+}
+
+/** Email/contraseña sintéticos, determinísticos por número, para la cuenta sombra. */
+function devShadowCredentials(phoneNumber: string): { email: string; password: string } {
+  const digitsOnly = phoneNumber.replace(/\D/g, "");
+  return {
+    email: `dev-${digitsOnly}@copiloto.test.internal`,
+    password: `dev-test-phone-${digitsOnly}-c0p1l0to`,
+  };
+}
+
+/**
+ * Inicia sesión en la cuenta sombra del número de prueba, creándola si no
+ * existe. Intenta `signUp` primero (usuario nuevo): si el proyecto tiene
+ * "Confirm email" activo, `signUp` crea el usuario pero NO deja sesión
+ * activa — en ese caso caemos a `signInWithPassword`, que fallará con un
+ * mensaje claro ("Email not confirmed") si de verdad sigue activo. Ver la
+ * nota de DEV_TEST_PHONES arriba para cómo desactivarlo.
+ */
+async function signInDevShadowUser(phoneNumber: string): Promise<VerifyOtpResult> {
+  const { email, password } = devShadowCredentials(phoneNumber);
+
+  const signUp = await supabase.auth.signUp({ email, password });
+  if (signUp.data.session?.user) {
+    return { ok: true, userId: signUp.data.session.user.id };
+  }
+
+  const signIn = await supabase.auth.signInWithPassword({ email, password });
+  if (signIn.data.session?.user) {
+    return { ok: true, userId: signIn.data.session.user.id };
+  }
+
+  return {
+    ok: false,
+    errorMessage:
+      signIn.error?.message ??
+      signUp.error?.message ??
+      "No se pudo iniciar la cuenta de prueba. Si el error menciona confirmación de correo, " +
+        "desactiva 'Confirm email' en Authentication → Providers → Email en el Dashboard de Supabase.",
+  };
+}
+
 export interface RequestPhoneOtpInput {
   phoneNumber: string; // E.164
 }
@@ -24,11 +116,17 @@ export interface RequestPhoneOtpResult {
   errorMessage?: string;
 }
 
-/** Pide a Supabase Auth que envíe (o, con Test OTP, simule) el código por SMS. */
+/** Pide el código por SMS (o, para números de prueba, simula el envío sin SMS real). */
 export async function requestPhoneOtp(input: RequestPhoneOtpInput): Promise<RequestPhoneOtpResult> {
   if (!input.phoneNumber.startsWith("+")) {
     return { ok: false, resendAvailableInSeconds: 0, errorMessage: "Número inválido." };
   }
+
+  if (findDevTestPhone(input.phoneNumber)) {
+    await delay(400);
+    return { ok: true, resendAvailableInSeconds: OTP_RESEND_SECONDS };
+  }
+
   const { error } = await supabase.auth.signInWithOtp({
     phone: input.phoneNumber,
   });
@@ -54,6 +152,15 @@ export async function verifyPhoneOtp(input: VerifyOtpInput): Promise<VerifyOtpRe
   if (!/^\d{6}$/.test(input.code)) {
     return { ok: false, errorMessage: "El código debe tener 6 dígitos." };
   }
+
+  const devPhone = findDevTestPhone(input.phoneNumber);
+  if (devPhone) {
+    if (input.code !== devPhone.code) {
+      return { ok: false, errorMessage: "Código incorrecto (número de prueba)." };
+    }
+    return signInDevShadowUser(input.phoneNumber);
+  }
+
   const { data, error } = await supabase.auth.verifyOtp({
     phone: input.phoneNumber,
     token: input.code,

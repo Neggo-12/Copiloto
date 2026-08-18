@@ -124,3 +124,30 @@ el único manejo es un `console.error` en `src/routes/index.tsx` — no hay pant
 mensaje visible para el usuario si falla. Aceptado como corte de alcance de esta
 iteración (el flujo feliz con Test OTP funciona de punta a punta); pendiente antes de
 producción.
+
+## 12. Atajo de "números de prueba" para OTP (TEMPORAL, quitar antes de producción)
+
+**2026-08-18.** Se confirmó que la función "Test OTP" de Supabase Auth **no existe
+para proyectos en la nube** (solo aplica a instalaciones self-hosted vía variable de
+entorno `SMS_TEST_OTP` — documentado únicamente en la guía de self-hosting). El
+Dashboard del proyecto "Copiloto" no tiene esa sección; solo permite configurar un
+proveedor de SMS real (Twilio/MessageBird/Vonage/Textlocal).
+
+Mientras se decide o se paga un proveedor real, `src/lib/actions/auth.ts` incluye un
+atajo: una lista de números fijos (`VITE_DEV_TEST_PHONES` en `.env.local`, nunca
+commiteado) que, en vez de pedir un SMS real, inician sesión en una cuenta "sombra"
+con email+password sintéticos generados a partir del número — sigue siendo un usuario
+y una sesión 100% reales de Supabase Auth (RLS funciona igual), solo que ningún SMS
+se envía. Hoy solo tiene el número del fundador (`+573024330410`); se puede agregar
+hasta un puñado más para las pruebas de mensajería con otras personas.
+
+**Riesgo aceptado:** las variables `VITE_*` quedan visibles en el bundle de JS que se
+sirve al navegador. Aceptable solo porque el proyecto hoy se prueba en local
+(`bun run dev`) entre el fundador y personas de confianza — **si esto se despliega
+alguna vez en una URL pública, hay que quitar este atajo primero** (o moverlo a una
+función server-side/Edge Function que no exponga la lista en el cliente).
+
+**Depende de:** que el proveedor "Email" del proyecto tenga desactivado "Confirm
+email" en el Dashboard (Authentication → Providers → Email) — si sigue activo, el
+primer inicio de sesión con un número de prueba falla con un mensaje que lo indica
+explícitamente (ver `signInDevShadowUser` en `auth.ts`).
