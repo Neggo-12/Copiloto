@@ -62,14 +62,13 @@ export function ChatsTab({
     return (
       <StatusViewerScreen
         statuses={viewerStatuses}
-        author={isOwn ? currentUser : controller.participants[statusAuthorId] ?? null}
+        author={isOwn ? currentUser : (controller.participants[statusAuthorId] ?? null)}
         isOwn={isOwn}
         participants={controller.participants}
         onClose={() => setStatusAuthorId(null)}
         onViewed={statuses.markStatusViewed}
         onReply={(body, statusReply) => {
-          const displayName =
-            controller.participants[statusAuthorId]?.displayName ?? "Contacto";
+          const displayName = controller.participants[statusAuthorId]?.displayName ?? "Contacto";
           const chatId = controller.replyToStatus(statusAuthorId, displayName, body, statusReply);
           setStatusAuthorId(null);
           controller.openChat(chatId);

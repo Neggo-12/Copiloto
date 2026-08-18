@@ -43,7 +43,6 @@ export function DetailScreen({
       >
         {children}
       </PhoneScreen>
-
     </div>
   );
 }

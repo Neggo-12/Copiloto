@@ -35,10 +35,7 @@ export function isGroupAdmin(chat: Chat, userId: UserId): boolean {
 }
 
 /** Miembros distintos del usuario actual. */
-export function getOtherParticipantIds(
-  chat: Chat,
-  userId: UserId = CURRENT_USER_ID,
-): UserId[] {
+export function getOtherParticipantIds(chat: Chat, userId: UserId = CURRENT_USER_ID): UserId[] {
   return chat.participantIds.filter((id) => id !== userId);
 }
 
@@ -94,11 +91,7 @@ export function createGroupChat(
   };
 }
 
-function patchGroup(
-  state: ChatsState,
-  chatId: ChatId,
-  patch: (chat: Chat) => Chat,
-): ChatsState {
+function patchGroup(state: ChatsState, chatId: ChatId, patch: (chat: Chat) => Chat): ChatsState {
   return {
     ...state,
     chats: state.chats.map((chat) => (chat.id === chatId && chat.isGroup ? patch(chat) : chat)),

@@ -82,8 +82,7 @@ export function StatusViewerScreen({
 
   if (!current) return null;
 
-  const background =
-    current.kind === "text" ? current.backgroundColor ?? "#5B4FE5" : "#0B0F19";
+  const background = current.kind === "text" ? (current.backgroundColor ?? "#5B4FE5") : "#0B0F19";
 
   return (
     <div
@@ -118,8 +117,7 @@ export function StatusViewerScreen({
             <span
               className="block h-full rounded-full bg-white transition-[width] duration-75"
               style={{
-                width:
-                  position < index ? "100%" : position === index ? `${progress}%` : "0%",
+                width: position < index ? "100%" : position === index ? `${progress}%` : "0%",
               }}
             />
           </span>
@@ -127,10 +125,14 @@ export function StatusViewerScreen({
       </div>
 
       <header className="flex items-center gap-3 px-4 py-3">
-        <Avatar name={author?.displayName ?? "Yo"} avatarUrl={author?.avatarUrl ?? null} size="sm" />
+        <Avatar
+          name={author?.displayName ?? "Yo"}
+          avatarUrl={author?.avatarUrl ?? null}
+          size="sm"
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-semibold tracking-tight">
-            {isOwn ? "Tu estado" : author?.displayName ?? "Contacto"}
+            {isOwn ? "Tu estado" : (author?.displayName ?? "Contacto")}
           </p>
           <p className="font-mono text-[12px] text-white/70">
             {formatChatTimestamp(current.createdAt)}
@@ -226,9 +228,7 @@ export function StatusViewerScreen({
           onPointerDown={(event) => event.stopPropagation()}
         >
           <div className="flex items-center justify-between border-b border-border/70 px-5 py-3">
-            <h2 className="text-[17px] font-semibold tracking-tight">
-              Visto por {viewers.length}
-            </h2>
+            <h2 className="text-[17px] font-semibold tracking-tight">Visto por {viewers.length}</h2>
             <button
               type="button"
               onClick={() => setViewersOpen(false)}

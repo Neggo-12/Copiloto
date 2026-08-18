@@ -5,12 +5,19 @@ empezar a trabajar, pero deben quedar registrados antes de construir encima.
 
 ## 1. Gestor de paquetes inconsistente
 
-`proyecto-mensajeria/` trae `bun.lock` (Lovable usa Bun), pero la máquina donde vive el
-repo solo tiene `node`/`npm` instalados, sin `bun`. Instalar con `npm install` puede
-resolver versiones ligeramente distintas a las que Lovable probó. Recomendación: instalar
-`bun` localmente (`curl -fsSL https://bun.sh/install | bash`) para reproducir exactamente
-el entorno de Lovable, o aceptar `npm` y regenerar `package-lock.json` de forma
-consciente (decisión a documentar en un ADR si se toma).
+**Resuelto 2026-08-18 (parcialmente):** el usuario instaló `bun` localmente. Pero el
+`bun.lock` original de Lovable resolvía los paquetes contra su **proxy privado**
+(`europe-west1-npm.pkg.dev/lovable-core-prod/...`), no contra el registro público de
+npm. Eso pasó inadvertido en instalaciones normales (`bun install` cae de vuelta al
+registro público si no puede alcanzar el proxy), pero **rompía GitHub Actions** en
+segundos con un 403, porque `bun install --frozen-lockfile` sí exige esa URL exacta y
+GitHub Actions no tiene acceso a la infraestructura de Lovable. Se regeneró `bun.lock`
+desde cero (`rm bun.lock && bun install`) contra el registro público — verificado que
+ya no queda ninguna referencia a `npm.pkg.dev`, y que `lint`/`typecheck`/`build` siguen
+pasando con las versiones nuevas (dentro de los rangos `^` que ya tenía `package.json`).
+Ver `docs/decisions/README.md` (entrada 2026-08-18, CI).
+
+`npm` sigue sin ser la herramienta recomendada para este proyecto (usar siempre `bun`).
 
 ## 2. Sin verificación automática ejecutada todavía
 
@@ -85,3 +92,14 @@ cuyo ID no conocía — un "oráculo de existencia" de bajo riesgo real porque l
 UUID v4 no enumerables, pero no es cero. Es el patrón estándar de Supabase para este
 tipo de función (se necesita `EXECUTE` de `authenticated` para que las políticas RLS del
 propio usuario se evalúen); se documenta como aceptado, no se persigue más por ahora.
+
+## 9. Pendiente visual: favicon/logo por defecto de Lovable
+
+Confirmado (2026-08-18) y en cola para "más adelante" por pedido del fundador — no se
+toca todavía: `proyecto-mensajeria/public/favicon.ico` es el ícono por defecto que trae
+Lovable (un corazón con gradiente naranja→azul), no un ícono propio de Copiloto. Es lo
+que aparece en la pestaña del navegador al abrir la app. Revisado el resto del código
+(componentes, `vite.config.ts`, el paquete `@lovable.dev/vite-tanstack-config`): no hay
+ningún otro logo o watermark de Lovable inyectado en la UI — solo el favicon. Para
+quitarlo hace falta un ícono real de Copiloto (256×256, `.ico` o `.png`); en cuanto se
+tenga el diseño de marca, se reemplaza ese único archivo.

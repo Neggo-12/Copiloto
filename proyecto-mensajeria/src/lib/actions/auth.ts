@@ -21,9 +21,7 @@ export interface RequestPhoneOtpResult {
 }
 
 /** Envía (simula) el código OTP al celular. */
-export async function requestPhoneOtp(
-  input: RequestPhoneOtpInput,
-): Promise<RequestPhoneOtpResult> {
+export async function requestPhoneOtp(input: RequestPhoneOtpInput): Promise<RequestPhoneOtpResult> {
   await delay(SIMULATED_LATENCY_MS);
   if (!input.phoneNumber.startsWith("+")) {
     return { ok: false, resendAvailableInSeconds: 0 };

@@ -15,17 +15,9 @@ import {
 import type { ReactNode } from "react";
 import { PhoneScreen } from "@/components/shared/PhoneScreen";
 import { Avatar } from "@/components/shared/Avatar";
-import {
-  ReadOnlyRow,
-  SettingsRow,
-  SettingsSection,
-} from "@/components/shared/SettingsList";
+import { ReadOnlyRow, SettingsRow, SettingsSection } from "@/components/shared/SettingsList";
 import { ConfirmSheet } from "@/components/shared/ConfirmSheet";
-import {
-  ABOUT_MAX_LENGTH,
-  REVERIFICATION_NOTICE,
-  isValidDisplayName,
-} from "@/lib/actions/profile";
+import { ABOUT_MAX_LENGTH, REVERIFICATION_NOTICE, isValidDisplayName } from "@/lib/actions/profile";
 import { formatContactPhone } from "@/lib/actions/contacts";
 import type { ProfileController } from "@/hooks/useProfile";
 

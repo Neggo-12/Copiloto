@@ -50,7 +50,9 @@ export function SettingsRow({
       className="press touch-target flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-secondary"
     >
       {Icon && (
-        <Icon className={cn("size-5 shrink-0", destructive ? "text-destructive" : "text-primary")} />
+        <Icon
+          className={cn("size-5 shrink-0", destructive ? "text-destructive" : "text-primary")}
+        />
       )}
       <span
         className={cn(
@@ -82,9 +84,7 @@ export function ReadOnlyRow({
     <div className="flex items-center gap-3 px-4 py-3.5">
       {Icon && <Icon className="size-5 shrink-0 text-muted-foreground" />}
       <span className="flex-1 text-[16px] font-medium tracking-tight">{label}</span>
-      <span className={cn("text-[15px] text-muted-foreground", mono && "font-mono")}>
-        {value}
-      </span>
+      <span className={cn("text-[15px] text-muted-foreground", mono && "font-mono")}>{value}</span>
     </div>
   );
 }

@@ -21,7 +21,11 @@ export function ChatAvatar({
   if (chat.avatarUrl) return <Avatar name={chat.title} avatarUrl={chat.avatarUrl} size={size} />;
 
   const boxes = { sm: "size-9", md: "size-12", lg: "size-14" } as const;
-  const stack = { sm: "size-6 text-[9px]", md: "size-8 text-[10px]", lg: "size-9 text-[11px]" } as const;
+  const stack = {
+    sm: "size-6 text-[9px]",
+    md: "size-8 text-[10px]",
+    lg: "size-9 text-[11px]",
+  } as const;
   const members = getOtherParticipantIds(chat).slice(0, 2);
 
   return (

@@ -129,8 +129,9 @@ export function publishStatus(
     authorId: input.authorId ?? CURRENT_USER_ID,
     kind: input.kind,
     body: input.body.trim(),
-    backgroundColor: input.kind === "text" ? input.backgroundColor ?? STATUS_BACKGROUNDS[0]!.color : null,
-    mediaUrl: input.kind === "media" ? input.mediaUrl ?? null : null,
+    backgroundColor:
+      input.kind === "text" ? (input.backgroundColor ?? STATUS_BACKGROUNDS[0]!.color) : null,
+    mediaUrl: input.kind === "media" ? (input.mediaUrl ?? null) : null,
     audience: input.audience ?? DEFAULT_STATUS_AUDIENCE,
     createdAt: createdAt.toISOString(),
     expiresAt: new Date(createdAt.getTime() + STATUS_TTL_MS).toISOString(),
@@ -174,10 +175,7 @@ export function buildStatusReply(status: StatusUpdate): StatusReplyRef {
   return {
     statusId: status.id,
     authorId: status.authorId,
-    preview:
-      status.kind === "media"
-        ? status.body || "Foto de estado"
-        : status.body || "Estado",
+    preview: status.kind === "media" ? status.body || "Foto de estado" : status.body || "Estado",
   };
 }
 

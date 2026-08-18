@@ -1,4 +1,12 @@
-import { Archive, ArchiveRestore, Bell, Check, ListChecks, Trash2, X } from "@/components/shared/icons";
+import {
+  Archive,
+  ArchiveRestore,
+  Bell,
+  Check,
+  ListChecks,
+  Trash2,
+  X,
+} from "@/components/shared/icons";
 import { useState } from "react";
 import { DetailScreen } from "@/components/shared/DetailScreen";
 import { VoiceRecorder } from "@/components/shared/VoiceRecorder";
@@ -177,7 +185,11 @@ export function NoteEditorScreen({
             }}
             className="press touch-target flex w-full items-center justify-center gap-2 rounded-2xl border border-border px-4 py-3 text-[15px] font-medium text-muted-foreground active:bg-secondary"
           >
-            {note.archivedAt ? <ArchiveRestore className="size-5" /> : <Archive className="size-5" />}
+            {note.archivedAt ? (
+              <ArchiveRestore className="size-5" />
+            ) : (
+              <Archive className="size-5" />
+            )}
             {note.archivedAt ? "Restaurar nota" : "Archivar nota"}
           </button>
         </section>

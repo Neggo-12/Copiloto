@@ -330,11 +330,7 @@ export const MUTE_OPTIONS: Array<{ value: MuteDuration; label: string }> = [
 /** Máximo de chats fijados simultáneamente. */
 export const MAX_PINNED_CHATS = 3;
 
-function updateChat(
-  state: ChatsState,
-  chatId: ChatId,
-  update: (chat: Chat) => Chat,
-): ChatsState {
+function updateChat(state: ChatsState, chatId: ChatId, update: (chat: Chat) => Chat): ChatsState {
   return {
     ...state,
     chats: state.chats.map((chat) => (chat.id === chatId ? update(chat) : chat)),
@@ -477,9 +473,36 @@ export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"
 
 /** Selector completo (simulado): set curado de emojis frecuentes. */
 export const EMOJI_PICKER_SET = [
-  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😊", "😍", "🤔", "😮",
-  "😢", "😡", "🙏", "👏", "💪", "✅", "❌", "⏰", "📌", "💡",
-  "🚀", "☕", "🍕", "⚽", "🌙", "☀️", "🤝", "👀", "🥳", "😴",
+  "👍",
+  "👎",
+  "❤️",
+  "🔥",
+  "🎉",
+  "😂",
+  "😊",
+  "😍",
+  "🤔",
+  "😮",
+  "😢",
+  "😡",
+  "🙏",
+  "👏",
+  "💪",
+  "✅",
+  "❌",
+  "⏰",
+  "📌",
+  "💡",
+  "🚀",
+  "☕",
+  "🍕",
+  "⚽",
+  "🌙",
+  "☀️",
+  "🤝",
+  "👀",
+  "🥳",
+  "😴",
 ] as const;
 
 /** Reacción del usuario indicado sobre un mensaje (null si no reaccionó). */
@@ -570,7 +593,9 @@ export const DISAPPEARING_OPTIONS: Array<{ label: string; ttlSeconds: Disappeari
 ];
 
 export function describeDisappearingTtl(ttlSeconds: number | null): string {
-  return DISAPPEARING_OPTIONS.find((option) => option.ttlSeconds === ttlSeconds)?.label ?? "Apagado";
+  return (
+    DISAPPEARING_OPTIONS.find((option) => option.ttlSeconds === ttlSeconds)?.label ?? "Apagado"
+  );
 }
 
 /** Inserta un mensaje de sistema centrado en el hilo (sin burbuja). */

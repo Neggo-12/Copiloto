@@ -12,8 +12,7 @@ export const PERMISSION_SEQUENCE: PermissionCopy[] = [
   {
     key: "contacts",
     title: "Contactos",
-    reason:
-      "Usamos tus contactos solo para mostrarte quién de tus conocidos ya está en la app.",
+    reason: "Usamos tus contactos solo para mostrarte quién de tus conocidos ya está en la app.",
     allowLabel: "Permitir contactos",
   },
   {

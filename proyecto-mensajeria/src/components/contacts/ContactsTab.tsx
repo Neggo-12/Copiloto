@@ -29,10 +29,6 @@ export function ContactsTab({
   }
 
   return (
-    <ContactListScreen
-      controller={controller}
-      tabBar={tabBar}
-      onOpenContact={setOpenContactId}
-    />
+    <ContactListScreen controller={controller} tabBar={tabBar} onOpenContact={setOpenContactId} />
   );
 }

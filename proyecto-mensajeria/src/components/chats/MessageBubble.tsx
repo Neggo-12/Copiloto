@@ -1,4 +1,14 @@
-import { Check, CheckCheck, Clock, FileText, ImageIcon, CornerUpLeft, AlertCircle, MapPin, Timer } from "@/components/shared/icons";
+import {
+  Check,
+  CheckCheck,
+  Clock,
+  FileText,
+  ImageIcon,
+  CornerUpLeft,
+  AlertCircle,
+  MapPin,
+  Timer,
+} from "@/components/shared/icons";
 import { useRef, useState } from "react";
 import { VoiceNotePlayer } from "@/components/chats/VoiceNotePlayer";
 import { formatClock, formatFileSize } from "@/lib/format";
@@ -70,7 +80,9 @@ function StatusTicks({ status }: { status: Message["status"] }) {
   if (status === "sending") return <Clock className="size-3.5 opacity-60" />;
   if (status === "failed") return <AlertCircle className="size-3.5 text-destructive" />;
   if (status === "sent") return <Check className="size-3.5 opacity-70" />;
-  return <CheckCheck className={cn("size-3.5", status === "read" ? "opacity-100" : "opacity-70")} />;
+  return (
+    <CheckCheck className={cn("size-3.5", status === "read" ? "opacity-100" : "opacity-70")} />
+  );
 }
 
 /** Burbuja de mensaje con soporte de texto, voz, imagen y documento. */
@@ -168,7 +180,6 @@ export function MessageBubble({
             </p>
           )}
 
-
           {message.forwardedFromChatId && (
             <p className="mb-1 text-[12px] font-medium opacity-65">Reenviado</p>
           )}
@@ -202,9 +213,7 @@ export function MessageBubble({
               <div className="grid h-32 place-items-center rounded-xl border border-border/50 bg-secondary">
                 <ImageIcon className="size-7 text-muted-foreground" />
               </div>
-              <p className="mt-1 truncate text-[12px] opacity-70">
-                {message.attachment?.fileName}
-              </p>
+              <p className="mt-1 truncate text-[12px] opacity-70">{message.attachment?.fileName}</p>
             </div>
           ) : message.kind === "location" ? (
             <LocationCard message={message} />
@@ -251,7 +260,10 @@ export function MessageBubble({
             )}
           >
             {reactions.map((entry) => (
-              <span key={entry.emoji} className="flex items-center gap-0.5 text-[13px] leading-none">
+              <span
+                key={entry.emoji}
+                className="flex items-center gap-0.5 text-[13px] leading-none"
+              >
                 {entry.emoji}
                 {showReactionCounts && entry.count > 1 && (
                   <span className="font-mono text-[11px] text-muted-foreground">{entry.count}</span>

@@ -257,7 +257,6 @@ const RAW_CHATS: Array<Omit<Chat, "disappearingTtlSeconds">> = [
     isGroup: true,
     adminIds: [CURRENT_USER_ID],
   },
-
 ];
 /** Chats simulados con los campos derivados por defecto. */
 export const MOCK_CHATS: Chat[] = RAW_CHATS.map((chat) => ({

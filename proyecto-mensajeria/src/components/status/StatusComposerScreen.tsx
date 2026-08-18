@@ -79,7 +79,12 @@ export function StatusComposerScreen({
             </div>
             {/* Simulación: cámara y galería devuelven la misma imagen de ejemplo. */}
             <div className="grid grid-cols-2 gap-2">
-              <TypeChip active icon={<Camera className="size-5" />} label="Cámara" onClick={() => {}} />
+              <TypeChip
+                active
+                icon={<Camera className="size-5" />}
+                label="Cámara"
+                onClick={() => {}}
+              />
               <TypeChip
                 active={false}
                 icon={<ImageIcon className="size-5" />}

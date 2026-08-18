@@ -90,8 +90,8 @@ export function EmailVerifyStep({
         <h2 className="text-[26px] font-bold tracking-tight">Revisa tu bandeja</h2>
         <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
           Enviamos un enlace y un código de 6 dígitos a{" "}
-          <span className="text-foreground">{onboardingDraft.email}</span>. Toca el enlace o
-          escribe el código.
+          <span className="text-foreground">{onboardingDraft.email}</span>. Toca el enlace o escribe
+          el código.
         </p>
 
         <div className="mt-9">

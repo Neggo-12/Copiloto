@@ -21,7 +21,7 @@ export function ReactionListSheet({
         {(message?.reactions ?? []).map((reaction) => {
           const isMe = reaction.userId === CURRENT_USER_ID;
           const profile = participants[reaction.userId];
-          const name = isMe ? "Tú" : profile?.displayName ?? "Participante";
+          const name = isMe ? "Tú" : (profile?.displayName ?? "Participante");
           return (
             <li key={`${reaction.userId}-${reaction.emoji}`}>
               <button

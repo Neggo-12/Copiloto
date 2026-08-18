@@ -75,7 +75,13 @@ export function selectDevice(state: DeviceState, deviceId: DeviceId): DeviceStat
 export function connectDevice(state: DeviceState, device?: HelmetDevice): DeviceState {
   const target = device ?? state.pairingDevice ?? state.pairedDevice;
   if (!target) return state;
-  return { ...state, phase: "connected", pairedDevice: target, pairingDevice: null, discovered: [] };
+  return {
+    ...state,
+    phase: "connected",
+    pairedDevice: target,
+    pairingDevice: null,
+    discovered: [],
+  };
 }
 
 /** Desconecta el casco pero recuerda el emparejamiento. */

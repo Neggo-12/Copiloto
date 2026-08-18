@@ -82,9 +82,7 @@ export const REVERIFICATION_NOTICE =
 export function revokeDevice(state: ProfileState, deviceId: DeviceId): ProfileState {
   return {
     ...state,
-    devices: state.devices.filter(
-      (device) => device.id !== deviceId || device.isCurrentDevice,
-    ),
+    devices: state.devices.filter((device) => device.id !== deviceId || device.isCurrentDevice),
   };
 }
 

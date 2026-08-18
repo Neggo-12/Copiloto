@@ -42,8 +42,7 @@ export function RecipientPicker({
     () =>
       (contacts ?? []).filter(
         (contact) =>
-          contact.displayName.toLowerCase().includes(term) ||
-          contact.phoneNumber.includes(term),
+          contact.displayName.toLowerCase().includes(term) || contact.phoneNumber.includes(term),
       ),
     [contacts, term],
   );
@@ -60,9 +59,7 @@ export function RecipientPicker({
 
   const toggle = (contact: Contact) => {
     setSelectedIds((prev) =>
-      prev.includes(contact.id)
-        ? prev.filter((id) => id !== contact.id)
-        : [...prev, contact.id],
+      prev.includes(contact.id) ? prev.filter((id) => id !== contact.id) : [...prev, contact.id],
     );
   };
 

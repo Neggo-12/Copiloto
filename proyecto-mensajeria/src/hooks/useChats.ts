@@ -213,10 +213,7 @@ export function useChats() {
   );
 
   /** Filtra la lista principal por nombre de chat. */
-  const search = useCallback(
-    (query: string) => chatActions.searchChats(state, query),
-    [state],
-  );
+  const search = useCallback((query: string) => chatActions.searchChats(state, query), [state]);
 
   /** Búsqueda global dentro del contenido de los mensajes, agrupada por chat. */
   const searchMessages = useCallback(

@@ -26,4 +26,3 @@ export function ProfileTab({ tabBar }: { tabBar: ReactNode }) {
 
   return <ProfileScreen controller={controller} tabBar={tabBar} onOpenSubscreen={setSubscreen} />;
 }
-

@@ -16,6 +16,9 @@ front-end tiene su propio changelog ("Historial de decisiones") dentro de
 | 2026-08-18 | Adopción de la estructura de tres niveles (`CLAUDE.md` + `.claude/skills/puntos-movilidad-engineering/` + `docs/`) para todo el proyecto "Puntos Movilidad", del cual CoPiloto (mensajería/asistente) es una parte. Reorganización de archivos existentes hacia esta estructura. | este commit |
 | 2026-08-18 | Auditoría inicial del repositorio: front-end real inspeccionado (TanStack Start + React 19), cero backend, patrón de acciones/hooks aislados confirmado como listo para voz. | `docs/architecture/CURRENT_ARCHITECTURE.md`, `REUSE_MATRIX.md`, `MISSING_CAPABILITIES.md`, `TECHNICAL_DEBT.md` |
 | 2026-08-18 | Confirmado: el proyecto Supabase "Copiloto" (`wrkuusacwkdazfwynhkz`, `ca-central-1`) ya existe y está activo, sin tablas todavía. Deja de ser un bloqueo para empezar el backend real. | `docs/architecture/MISSING_CAPABILITIES.md` |
+| 2026-08-18 | Esquema real de base de datos aplicado sobre "Copiloto": 13 tablas, RLS en todas, 4 buckets de Storage, funciones helper restringidas a `authenticated`. Se agregó CI (GitHub Actions: lint+typecheck+build) para el front-end. | `docs/decisions/ADR-0001-esquema-backend.md`, `.github/workflows/ci.yml` |
+| 2026-08-18 | Se regeneró `bun.lock` del front-end: el original de Lovable apuntaba a su proxy privado de npm, lo cual rompía CI (403) aunque funcionara en instalaciones locales normales. Se corrigieron además ~100 errores de formato (prettier/eslint) preexistentes en el código de Lovable, con `--fix` (solo estilo, sin cambios de lógica). | `docs/architecture/TECHNICAL_DEBT.md` §1 |
+| 2026-08-18 | Confirmado que "el logo de Lovable" que aparece al abrir la app es únicamente el favicon por defecto (`public/favicon.ico`); no hay ningún otro watermark de Lovable en la UI. Reemplazo pospuesto hasta tener un ícono propio de Copiloto — pedido explícito del fundador de dejarlo para más adelante. | `docs/architecture/TECHNICAL_DEBT.md` §9 |
 
 ## Pendiente de decidir
 
@@ -25,3 +28,4 @@ front-end tiene su propio changelog ("Historial de decisiones") dentro de
   contra el código real exportado en `proyecto-mensajeria/` (ya inspeccionado en la
   auditoría del 18 de agosto; el modelo de `src/lib/domain/types.ts` coincide en general
   con la spec — cruce fino queda para cuando se apliquen las migraciones).
+- Ícono/favicon propio de Copiloto para reemplazar el de Lovable (pendiente de diseño).

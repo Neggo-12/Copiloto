@@ -151,7 +151,6 @@ export interface Chat {
   disappearingTtlSeconds: DisappearingTtlSeconds | null;
 }
 
-
 export type NoteKind = "text" | "voice";
 
 /** Estado de una nota marcada como tarea. */
@@ -222,11 +221,4 @@ export interface SecuritySettings {
 
 /** Pasos del flujo de entrada previo a la navegación principal. */
 export type OnboardingStep =
-  | "welcome"
-  | "phone"
-  | "otp"
-  | "email"
-  | "email_verify"
-  | "profile"
-  | "permissions"
-  | "done";
+  "welcome" | "phone" | "otp" | "email" | "email_verify" | "profile" | "permissions" | "done";

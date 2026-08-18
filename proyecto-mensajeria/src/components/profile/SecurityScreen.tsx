@@ -40,7 +40,11 @@ export function SecurityScreen({
         >
           {devices.map((device) => {
             const Icon =
-              device.platform === "web" ? Laptop : device.platform === "ios" ? Smartphone : KeyRound;
+              device.platform === "web"
+                ? Laptop
+                : device.platform === "ios"
+                  ? Smartphone
+                  : KeyRound;
             return (
               <div key={device.id} className="flex items-center gap-3 px-4 py-3.5">
                 <Icon className="size-5 shrink-0 text-primary" />

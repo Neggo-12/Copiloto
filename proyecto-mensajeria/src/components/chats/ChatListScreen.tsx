@@ -221,11 +221,7 @@ export function ChatListScreen({
         onNotice={setNotice}
       />
 
-      <BottomSheet
-        open={isCreateSheetOpen}
-        title="Nuevo"
-        onClose={() => setCreateSheetOpen(false)}
-      >
+      <BottomSheet open={isCreateSheetOpen} title="Nuevo" onClose={() => setCreateSheetOpen(false)}>
         <ul className="p-2 pb-4">
           <li>
             <button
@@ -273,10 +269,7 @@ export function ChatListScreen({
         contacts={contacts}
         onPickContact={(contact) => {
           if (!contact.linkedUserId) return;
-          const chatId = controller.startChatWithUser(
-            contact.linkedUserId,
-            contact.displayName,
-          );
+          const chatId = controller.startChatWithUser(contact.linkedUserId, contact.displayName);
           setPickerOpen(false);
           if (chatId) onOpenChat(chatId);
         }}
@@ -427,7 +420,9 @@ function MenuAction({
         {icon}
         <span className="flex-1">
           {label}
-          {hint && <span className="block text-[12px] font-normal text-muted-foreground">{hint}</span>}
+          {hint && (
+            <span className="block text-[12px] font-normal text-muted-foreground">{hint}</span>
+          )}
         </span>
       </button>
     </li>

@@ -35,8 +35,9 @@ export function GroupDetailScreen({
   if (!chat || !chat.isGroup) return null;
   const isAdmin = canManageGroup(chat);
   const removingId = typeof pending === "object" && pending ? pending.removeId : null;
-  const removingName =
-    removingId ? controller.participants[removingId]?.displayName ?? "el participante" : "";
+  const removingName = removingId
+    ? (controller.participants[removingId]?.displayName ?? "el participante")
+    : "";
 
   const availableContacts = contacts.filter(
     (contact) => contact.linkedUserId && !chat.participantIds.includes(contact.linkedUserId),
@@ -49,7 +50,12 @@ export function GroupDetailScreen({
           {isAdmin ? (
             <label className="relative cursor-pointer">
               {chat.avatarUrl ? (
-                <Avatar name={chat.title} avatarUrl={chat.avatarUrl} size="lg" className="size-24 text-[24px]" />
+                <Avatar
+                  name={chat.title}
+                  avatarUrl={chat.avatarUrl}
+                  size="lg"
+                  className="size-24 text-[24px]"
+                />
               ) : (
                 <span className="grid size-24 place-items-center rounded-full border border-border bg-accent text-accent-foreground">
                   <Users className="size-9" />
@@ -69,7 +75,12 @@ export function GroupDetailScreen({
               />
             </label>
           ) : chat.avatarUrl ? (
-            <Avatar name={chat.title} avatarUrl={chat.avatarUrl} size="lg" className="size-24 text-[24px]" />
+            <Avatar
+              name={chat.title}
+              avatarUrl={chat.avatarUrl}
+              size="lg"
+              className="size-24 text-[24px]"
+            />
           ) : (
             <span className="grid size-24 place-items-center rounded-full border border-border bg-accent text-accent-foreground">
               <Users className="size-9" />
@@ -108,7 +119,7 @@ export function GroupDetailScreen({
             {chat.participantIds.map((participantId) => {
               const isMe = participantId === CURRENT_USER_ID;
               const profile = controller.participants[participantId];
-              const name = isMe ? "Tú" : profile?.displayName ?? "Participante";
+              const name = isMe ? "Tú" : (profile?.displayName ?? "Participante");
               return (
                 <li key={participantId} className="flex items-center gap-3 py-3">
                   <Avatar name={name} avatarUrl={profile?.avatarUrl ?? null} size="sm" />

@@ -84,10 +84,7 @@ export interface AddContactResult {
  * Agregar contacto manual por número de celular. El nombre es opcional: si no
  * se indica, se usa el número como nombre visible.
  */
-export function addManualContact(
-  state: ContactsState,
-  input: AddContactInput,
-): AddContactResult {
+export function addManualContact(state: ContactsState, input: AddContactInput): AddContactResult {
   const country = findCountry(input.countryCode ?? "CO");
   const digits = normalizeNationalNumber(input.nationalNumber);
   if (digits.length !== country.nationalDigits) {

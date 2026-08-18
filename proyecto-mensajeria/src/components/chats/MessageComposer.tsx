@@ -116,8 +116,16 @@ export function MessageComposer({
       {isAttachOpen && locationStep === null && (
         <div className="mb-2 grid grid-cols-4 gap-2">
           {[
-            { label: "Cámara", icon: Camera, run: () => handlers.onSendAttachment("image", "foto-camara.jpg") },
-            { label: "Galería", icon: ImageIcon, run: () => handlers.onSendAttachment("image", "galeria-01.jpg") },
+            {
+              label: "Cámara",
+              icon: Camera,
+              run: () => handlers.onSendAttachment("image", "foto-camara.jpg"),
+            },
+            {
+              label: "Galería",
+              icon: ImageIcon,
+              run: () => handlers.onSendAttachment("image", "galeria-01.jpg"),
+            },
             {
               label: "Documento",
               icon: FileText,

@@ -24,7 +24,5 @@ export function NotesTab({ tabBar }: { tabBar: ReactNode }) {
     );
   }
 
-  return (
-    <NoteListScreen controller={controller} tabBar={tabBar} onOpenNote={setOpenNoteId} />
-  );
+  return <NoteListScreen controller={controller} tabBar={tabBar} onOpenNote={setOpenNoteId} />;
 }

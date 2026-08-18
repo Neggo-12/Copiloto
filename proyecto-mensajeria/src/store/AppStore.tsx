@@ -116,12 +116,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return user;
   }, [onboardingDraft]);
 
-  const updateCurrentUser = useCallback(
-    (updater: (user: UserProfile) => UserProfile) => {
-      setCurrentUser((prev) => (prev ? updater(prev) : prev));
-    },
-    [],
-  );
+  const updateCurrentUser = useCallback((updater: (user: UserProfile) => UserProfile) => {
+    setCurrentUser((prev) => (prev ? updater(prev) : prev));
+  }, []);
 
   const signOut = useCallback(() => {
     setCurrentUser(null);

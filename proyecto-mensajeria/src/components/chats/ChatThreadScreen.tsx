@@ -1,4 +1,11 @@
-import { CornerUpLeft, Forward, NavigationArrow, Pencil, Phone, Trash2 } from "@/components/shared/icons";
+import {
+  CornerUpLeft,
+  Forward,
+  NavigationArrow,
+  Pencil,
+  Phone,
+  Trash2,
+} from "@/components/shared/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatAvatar } from "@/components/chats/GroupAvatar";
 import { describeParticipants } from "@/lib/actions/groups";
@@ -86,10 +93,10 @@ export function ChatThreadScreen({
     : chat.activity === "typing"
       ? "escribiendo…"
       : chat.activity === "recording_audio"
-      ? "grabando audio…"
-      : other?.isOnline
-        ? "en línea"
-        : "visto hace poco";
+        ? "grabando audio…"
+        : other?.isOnline
+          ? "en línea"
+          : "visto hace poco";
 
   // En esta fase las llamadas de grupo no aplican: se oculta el botón.
   const callButton = isGroup ? undefined : (
@@ -164,35 +171,35 @@ export function ChatThreadScreen({
               {message.body}
             </p>
           ) : (
-          <div
-            key={message.id}
-            {...(message.id === highlightMessageId ? { ref: highlightRef } : {})}
-            className={`rounded-3xl transition-colors duration-500 ${
-              highlighted === message.id ? "bg-accent-warm/20" : "bg-transparent"
-            }`}
-          >
-          <MessageBubble
-            message={message}
-            outgoing={message.senderId === CURRENT_USER_ID}
-            /* Agrupación visual de mensajes consecutivos del mismo remitente. */
-            firstOfGroup={messages[index - 1]?.senderId !== message.senderId}
-            lastOfGroup={messages[index + 1]?.senderId !== message.senderId}
-            quoted={
-              message.replyToMessageId
-                ? messages.find((item) => item.id === message.replyToMessageId) ?? null
-                : null
-            }
-            senderName={
-              isGroup
-                ? controller.participants[message.senderId]?.displayName ?? "Participante"
-                : null
-            }
-            onReply={() => setReplyTo(message)}
-            onLongPress={() => setActionsFor(message)}
-            onOpenReactions={() => setReactionsFor(message)}
-            showReactionCounts={isGroup}
-          />
-          </div>
+            <div
+              key={message.id}
+              {...(message.id === highlightMessageId ? { ref: highlightRef } : {})}
+              className={`rounded-3xl transition-colors duration-500 ${
+                highlighted === message.id ? "bg-accent-warm/20" : "bg-transparent"
+              }`}
+            >
+              <MessageBubble
+                message={message}
+                outgoing={message.senderId === CURRENT_USER_ID}
+                /* Agrupación visual de mensajes consecutivos del mismo remitente. */
+                firstOfGroup={messages[index - 1]?.senderId !== message.senderId}
+                lastOfGroup={messages[index + 1]?.senderId !== message.senderId}
+                quoted={
+                  message.replyToMessageId
+                    ? (messages.find((item) => item.id === message.replyToMessageId) ?? null)
+                    : null
+                }
+                senderName={
+                  isGroup
+                    ? (controller.participants[message.senderId]?.displayName ?? "Participante")
+                    : null
+                }
+                onReply={() => setReplyTo(message)}
+                onLongPress={() => setActionsFor(message)}
+                onOpenReactions={() => setReactionsFor(message)}
+                showReactionCounts={isGroup}
+              />
+            </div>
           ),
         )}
         <div ref={bottomRef} />
@@ -226,11 +233,7 @@ export function ChatThreadScreen({
         }}
       />
 
-      <BottomSheet
-        open={Boolean(actionsFor)}
-        title="Mensaje"
-        onClose={() => setActionsFor(null)}
-      >
+      <BottomSheet open={Boolean(actionsFor)} title="Mensaje" onClose={() => setActionsFor(null)}>
         {actionsFor && (
           <ReactionBar
             activeEmoji={getUserReaction(actionsFor)}
@@ -298,7 +301,7 @@ export function ChatThreadScreen({
       <ReactionListSheet
         message={
           reactionsFor
-            ? controller.state.messages.find((item) => item.id === reactionsFor.id) ?? null
+            ? (controller.state.messages.find((item) => item.id === reactionsFor.id) ?? null)
             : null
         }
         participants={controller.participants}

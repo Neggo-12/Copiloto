@@ -50,15 +50,11 @@ export function PhoneStep({ onBack, onSent }: { onBack: () => void; onSent: () =
               <span className="text-xl">{country.flag}</span>
               <span className="text-[16px] font-medium">{country.name}</span>
             </span>
-            <span className="font-mono text-[15px] text-muted-foreground">
-              {country.dialCode}
-            </span>
+            <span className="font-mono text-[15px] text-muted-foreground">{country.dialCode}</span>
           </button>
 
           <div className="flex items-center gap-3 px-4">
-            <span className="font-mono text-[17px] text-muted-foreground">
-              {country.dialCode}
-            </span>
+            <span className="font-mono text-[17px] text-muted-foreground">{country.dialCode}</span>
             <input
               value={formatNationalNumber(onboardingDraft.phoneNationalNumber)}
               onChange={(event) =>

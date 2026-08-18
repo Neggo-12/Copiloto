@@ -1,4 +1,13 @@
-import { Archive, ArchiveRestore, Bell, Check, Mic, Plus, Search, Trash2 } from "@/components/shared/icons";
+import {
+  Archive,
+  ArchiveRestore,
+  Bell,
+  Check,
+  Mic,
+  Plus,
+  Search,
+  Trash2,
+} from "@/components/shared/icons";
 import { useMemo, useState } from "react";
 import { PhoneScreen } from "@/components/shared/PhoneScreen";
 import { SwipeableRow } from "@/components/chats/SwipeableRow";
