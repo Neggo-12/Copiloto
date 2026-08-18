@@ -212,3 +212,55 @@ función `SECURITY DEFINER` (como ya se hace con `is_chat_participant`/
 `is_chat_admin`/`is_contact_of`/`can_view_status`), nunca con un `EXISTS`/subquery
 directo — de lo contrario queda sujeto a la RLS de esa otra tabla y puede crear
 ciclos irresolubles.
+
+## 14. Estado de lectura (chulos dobles) inconsistente al entrar a un chat desde afuera — PAUSADO a pedido del fundador — 2026-08-18
+
+**Síntoma reportado:** al estar fuera de un chat, llegar un mensaje nuevo, y luego
+entrar a ese chat y leerlo, los chulos no siempre pasan a "leído" (doble chulo
+verde). El fundador reporta que a veces se queda en un solo chulo. También
+reportó (sin verificar aún) que el color pudo haber quedado invertido
+(verde = visto, rojo = no visto es el diseño pedido).
+
+**Diagnóstico realizado antes de pausar:**
+- Se revisó `edge_logs` vía `query_logs`: los `POST /rest/v1/message_status`
+  (la llamada real de `markChatReadRemote`) dejaron de intentarse por completo
+  después de cierto punto en el tiempo — es decir, el cliente nunca llegó a
+  invocar la llamada de red; no es un rechazo del servidor (403/RLS), porque
+  no hay ningún intento registrado.
+- Se releyeron `openChat` (en `useChats.ts`), el nuevo `useEffect` en
+  `ChatThreadScreen.tsx` que re-dispara `openChat` cuando hay mensajes sin
+  leer del otro participante, y los tres call-sites de `onOpenChat` en
+  `ChatsTab.tsx` y `ChatListScreen.tsx`. Todos enrutan correctamente a
+  `controller.openChat(chatId)` — no se encontró un bug obvio de lógica en
+  revisión estática de código.
+- No fue posible aislar la causa exacta sin acceso a la consola del navegador
+  del fundador en el momento del bug (breakpoints/logs en vivo).
+
+**Instrumentación agregada (commit `e3f9f34`)** para facilitar el próximo
+diagnóstico: `markChatReadRemote` y `markMessagesDeliveredRemote` ahora
+capturan y hacen `console.error` de cualquier error de Supabase en vez de
+ignorarlo silenciosamente. La próxima vez que se reproduzca el bug, revisar la
+consola del navegador debería decir si la llamada se intentó y falló (y por
+qué) o si simplemente nunca se disparó.
+
+**Nota sobre el reporte de "los chulos dobles salen cuando haces cambios por
+allá" (es decir, cuando se hacen escrituras/pruebas desde el lado de Supabase
+directamente):** es probablemente solo un efecto colateral de las pruebas de
+verificación en base de datos durante el desarrollo (escrituras directas de
+`message_status` para simular el flujo), no evidencia de la causa real del
+bug. No se debe sobre-interpretar como pista definitiva sin repetir la prueba
+de forma controlada.
+
+**Color rojo/verde:** el código actual (`StatusTicks` en
+`MessageBubble.tsx`) es `status === "read" ? "text-success" : "text-destructive"`,
+que en una lectura del código es correcto para verde=visto / rojo=no visto.
+El reporte de inversión no se ha podido confirmar contra una captura de
+pantalla real; queda pendiente verificar en vivo antes de asumir que el
+código está invertido.
+
+**Decisión:** el fundador indicó explícitamente pausar este bug ("deja eso
+ahi quieto ya, dejalo anotado para corregir") para priorizar trabajo de mayor
+valor. No se debe seguir intentando corregir esto hasta que se retome
+explícitamente, momento en el cual se debe empezar por revisar la consola del
+navegador en una reproducción en vivo (gracias a la instrumentación ya
+agregada) en vez de seguir adivinando desde el código estático.
