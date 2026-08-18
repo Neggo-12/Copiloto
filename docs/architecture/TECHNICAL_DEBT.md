@@ -151,3 +151,28 @@ función server-side/Edge Function que no exponga la lista en el cliente).
 email" en el Dashboard (Authentication → Providers → Email) — si sigue activo, el
 primer inicio de sesión con un número de prueba falla con un mensaje que lo indica
 explícitamente (ver `signInDevShadowUser` en `auth.ts`).
+
+**Resuelto y confirmado funcionando de punta a punta — 2026-08-18.** Se diagnosticaron
+y corrigieron tres problemas encadenados que impedían usar el atajo:
+
+1. `signInDevShadowUser` mostraba el error genérico de `signInWithPassword`
+   ("Invalid login credentials") en vez del error real de `signUp`, escondiendo la
+   causa de fondo. Corregido: ahora prioriza `signUp.error` cuando no se creó ningún
+   usuario.
+2. El dominio sintético original (`dev-<numero>@copiloto.test.internal`) es
+   rechazado por Supabase Auth con "Email address is invalid" — los dominios de
+   prueba tipo `.test`/`.internal` no pasan su validación. Corregido: la cuenta
+   sombra ahora usa un alias `+` sobre un correo real y propio (configurable vía
+   `VITE_DEV_SHADOW_EMAIL_BASE` en `.env.local`), ej.
+   `correo+dev-<numero>@gmail.com` — dominio válido, y si algún día se reactivara
+   "Confirm email" el correo llegaría a una bandeja real.
+3. El proveedor **"Email" estaba deshabilitado por completo** en Authentication →
+   Sign In / Providers del Dashboard (no solo "Confirm email" activo) — por eso
+   cualquier `signUp` fallaba con "Email signups are disabled" sin importar el
+   dominio. Se habilitó el proveedor Email y se desactivó "Confirm email" en el
+   Dashboard (paso manual, no versionable).
+
+Verificado con SQL directo contra el proyecto: el número de prueba `+573024330410`
+generó una sesión real de Supabase Auth y una fila real en `public.profiles` (con
+`display_name` y `email` capturados en el onboarding), confirmando el flujo completo
+teléfono → OTP → correo → perfil → permisos → `completeOnboarding()`.

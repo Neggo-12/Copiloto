@@ -20,14 +20,17 @@ front-end tiene su propio changelog ("Historial de decisiones") dentro de
 | 2026-08-18 | Se regeneró `bun.lock` del front-end: el original de Lovable apuntaba a su proxy privado de npm, lo cual rompía CI (403) aunque funcionara en instalaciones locales normales. Se corrigieron además ~100 errores de formato (prettier/eslint) preexistentes en el código de Lovable, con `--fix` (solo estilo, sin cambios de lógica). | `docs/architecture/TECHNICAL_DEBT.md` §1 |
 | 2026-08-18 | Confirmado que "el logo de Lovable" que aparece al abrir la app es únicamente el favicon por defecto (`public/favicon.ico`); no hay ningún otro watermark de Lovable en la UI. Reemplazo pospuesto hasta tener un ícono propio de Copiloto — pedido explícito del fundador de dejarlo para más adelante. | `docs/architecture/TECHNICAL_DEBT.md` §9 |
 | 2026-08-18 | Se conectó la verificación telefónica del onboarding a Supabase Auth real, usando **Test OTP** (números de prueba sin proveedor de SMS pagado) mientras se decide el proveedor de producción. La sesión se guarda en memoria (no localStorage) mientras la app corra solo como web/PWA, por la regla de seguridad del fundador; se migra a `@capacitor/preferences` (almacenamiento nativo) cuando exista empaquetado real. `completeOnboarding()` ahora crea/actualiza la fila real en `profiles`. | `proyecto-mensajeria/src/lib/supabase/client.ts`, `src/lib/actions/auth.ts`, `src/store/AppStore.tsx` |
+| 2026-08-18 | Se intentó configurar Twilio (Messaging Service y Verify) como proveedor de SMS de producción; se abandonó por ahora — Verify redirige a un muro de "actualizar cuenta" en el plan trial y Messaging Service requiere registro A2P 10DLC (proceso de varios días). Se prioriza no perder más tiempo en esto mientras se prueba con el equipo cercano. | conversación 2026-08-18 |
+| 2026-08-18 | Se confirmó y corrigió de punta a punta el atajo de números de prueba (`VITE_DEV_TEST_PHONES`): el proveedor "Email" del proyecto Supabase estaba deshabilitado por completo (no solo "Confirm email" activo), y el dominio sintético original era rechazado por Supabase. Con el proveedor Email habilitado, "Confirm email" desactivado, y un dominio de correo real (alias `+`), el flujo completo teléfono → OTP → correo → perfil → permisos quedó verificado funcionando con una sesión y una fila de `profiles` reales. | `docs/architecture/TECHNICAL_DEBT.md` §12 |
 
 ## Pendiente de decidir
 
 - Proveedor de SMS/OTP de **producción** para verificación telefónica (Twilio /
   MessageBird / Vonage) — hoy se usa Test OTP (sin costo, números fijos) como
   solución interina, elegida explícitamente por el fundador el 2026-08-18.
-- Registrar los números de Test OTP y habilitar el proveedor Phone en el Dashboard
-  de Supabase Auth (paso manual pendiente de hacer — ver paso a paso entregado).
+- Proveedor Phone sigue deshabilitado a propósito en el Dashboard de Supabase Auth
+  (no hay SMS real todavía); el atajo de números de prueba cubre las pruebas
+  mientras tanto.
 - Verificación de correo real (hoy sigue simulada; la spec la trata como
   identidad secundaria).
 - Cruce de nombres del esquema de `docs/architecture/Especificacion-Backend-Supabase-CoPiloto.md`
