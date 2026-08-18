@@ -76,12 +76,22 @@ function LocationCard({ message }: { message: Message }) {
   );
 }
 
-function StatusTicks({ status }: { status: Message["status"] }) {
+/**
+ * Chulos de estado de un mensaje propio — reutilizado también en la lista de
+ * chats (ChatListScreen) para ver el estado del último mensaje sin tener que
+ * abrir la conversación, igual que WhatsApp.
+ *
+ * Un chulo = enviado (todavía nadie lo confirmó). Dos chulos rojos =
+ * entregado pero no visto. Dos chulos verdes = visto.
+ */
+export function StatusTicks({ status }: { status: Message["status"] }) {
   if (status === "sending") return <Clock className="size-3.5 opacity-60" />;
   if (status === "failed") return <AlertCircle className="size-3.5 text-destructive" />;
   if (status === "sent") return <Check className="size-3.5 opacity-70" />;
   return (
-    <CheckCheck className={cn("size-3.5", status === "read" ? "opacity-100" : "opacity-70")} />
+    <CheckCheck
+      className={cn("size-3.5", status === "read" ? "text-success" : "text-destructive")}
+    />
   );
 }
 

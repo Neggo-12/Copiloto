@@ -19,8 +19,10 @@ import { PhoneScreen } from "@/components/shared/PhoneScreen";
 import { SwipeableRow } from "@/components/chats/SwipeableRow";
 import { RecipientPicker } from "@/components/chats/RecipientPicker";
 import { DetailScreen } from "@/components/shared/DetailScreen";
-import { MUTE_OPTIONS, describeMute } from "@/lib/actions/chats";
+import { MUTE_OPTIONS, describeMute, getChatMessages } from "@/lib/actions/chats";
 import { formatChatTimestamp } from "@/lib/format";
+import { StatusTicks } from "@/components/chats/MessageBubble";
+import { CURRENT_USER_ID } from "@/lib/domain/mock-data";
 import type { Chat, ChatId, Contact, MessageId, UserProfile } from "@/lib/domain/types";
 import type { ChatsController } from "@/hooks/useChats";
 import type { ReactNode } from "react";
@@ -115,6 +117,7 @@ export function ChatListScreen({
                 >
                   <ChatRow
                     chat={chat}
+                    controller={controller}
                     participants={controller.participants}
                     onOpen={() => onOpenChat(chat.id)}
                     onLongPress={() => setMenuFor(chat)}
@@ -171,6 +174,7 @@ export function ChatListScreen({
           <SearchResults
             chats={results}
             groups={messageGroups}
+            controller={controller}
             participants={controller.participants}
             query={query}
             onOpenChat={onOpenChat}
@@ -186,6 +190,7 @@ export function ChatListScreen({
                 <SwipeableRow actions={swipeActions(chat)}>
                   <ChatRow
                     chat={chat}
+                    controller={controller}
                     participants={controller.participants}
                     onOpen={() => onOpenChat(chat.id)}
                     onLongPress={() => setMenuFor(chat)}
@@ -436,12 +441,14 @@ function MenuAction({
 function SearchResults({
   chats,
   groups,
+  controller,
   participants,
   query,
   onOpenChat,
 }: {
   chats: Chat[];
   groups: ReturnType<ChatsController["searchMessages"]>;
+  controller: ChatsController;
   participants: Record<string, UserProfile>;
   query: string;
   onOpenChat: (chatId: ChatId, messageId?: MessageId) => void;
@@ -466,6 +473,7 @@ function SearchResults({
               <li key={chat.id}>
                 <ChatRow
                   chat={chat}
+                  controller={controller}
                   participants={participants}
                   onOpen={() => onOpenChat(chat.id)}
                 />
@@ -532,11 +540,13 @@ function Highlighted({ text, term }: { text: string; term: string }) {
 
 function ChatRow({
   chat,
+  controller,
   participants,
   onOpen,
   onLongPress,
 }: {
   chat: Chat;
+  controller: ChatsController;
   participants: Record<string, UserProfile>;
   onOpen: () => void;
   onLongPress?: () => void;
@@ -548,6 +558,12 @@ function ChatRow({
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
   };
+
+  // Chulo de estado del último mensaje, visible sin tener que abrir el chat
+  // (igual que WhatsApp) — solo tiene sentido para mi propio último mensaje
+  // en un chat 1-a-1 (los grupos no llevan lectura por persona todavía).
+  const lastMessage = getChatMessages(controller.state, chat.id).at(-1) ?? null;
+  const lastMessageIsMine = !chat.isGroup && lastMessage?.senderId === CURRENT_USER_ID;
 
   const activityLabel =
     chat.activity === "typing"
@@ -596,6 +612,9 @@ function ChatRow({
           </span>
         </span>
         <span className="mt-0.5 flex items-center gap-2">
+          {lastMessageIsMine && !activityLabel && lastMessage && (
+            <StatusTicks status={lastMessage.status} />
+          )}
           <span
             className={`min-w-0 flex-1 truncate text-[14px] ${
               activityLabel ? "font-medium text-accent-warm" : "text-muted-foreground"

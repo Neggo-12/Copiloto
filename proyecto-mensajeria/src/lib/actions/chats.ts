@@ -207,7 +207,10 @@ async function hydrateMessageStatuses(messages: Message[], userId: UserId): Prom
 /** Marca (de verdad, en Supabase) que estos mensajes ya llegaron a mi dispositivo. */
 export async function markMessagesDeliveredRemote(messageIds: MessageId[]): Promise<void> {
   if (messageIds.length === 0) return;
-  await supabase.rpc("mark_messages_delivered", { p_message_ids: messageIds });
+  const { error } = await supabase.rpc("mark_messages_delivered", { p_message_ids: messageIds });
+  if (error) {
+    console.error("[chats] markMessagesDeliveredRemote: no se pudo marcar como entregado", error);
+  }
 }
 
 /** Carga todos los chats reales del usuario junto con sus mensajes. */
@@ -440,13 +443,21 @@ export async function markChatReadRemote(
   userId: UserId,
   unreadMessageIds: MessageId[],
 ): Promise<void> {
-  await supabase
+  const { error: lastReadError } = await supabase
     .from("chat_participants")
     .update({ last_read_at: new Date().toISOString() })
     .eq("chat_id", chatId)
     .eq("user_id", userId);
+  // Antes esto se ignoraba en silencio: si fallaba, el estado local ya
+  // había quedado "leído" de forma optimista (chatActions.openChat), así que
+  // nunca se reintentaba ni se notaba — quedaba "leído" para mí pero
+  // "entregado" para siempre del lado de quien lo mandó. Con esto al menos
+  // queda en la consola para poder diagnosticarlo si vuelve a pasar.
+  if (lastReadError) {
+    console.error("[chats] markChatReadRemote: no se pudo actualizar last_read_at", lastReadError);
+  }
   if (unreadMessageIds.length === 0) return;
-  await supabase.from("message_status").upsert(
+  const { error: statusError } = await supabase.from("message_status").upsert(
     unreadMessageIds.map((messageId) => ({
       message_id: messageId,
       user_id: userId,
@@ -454,6 +465,9 @@ export async function markChatReadRemote(
     })),
     { onConflict: "message_id,user_id" },
   );
+  if (statusError) {
+    console.error("[chats] markChatReadRemote: no se pudo marcar como leído", statusError);
+  }
 }
 
 /** Ventana de edición/eliminación de un mensaje propio (regla provisional). */
