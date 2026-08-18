@@ -17,7 +17,8 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   MVP: consumir Supabase directamente desde el front-end (PostgREST + Realtime +
   Storage del SDK) sin una capa NestJS intermedia todavía. Es una decisión pendiente,
   no tomada por esta auditoría.
-- PostGIS no está habilitado en el proyecto todavía (no hace falta hasta Location/Maps).
+- **Resuelto 2026-08-18:** PostGIS 3.3.7 habilitado en el proyecto (schema
+  `extensions`), como parte de la Fase 1 del cronograma de Emergency Corridor.
 - Redis + BullMQ para estado caliente/jobs (recordatorios por tiempo, cooldowns).
 - WebSockets/tiempo real: la tabla existe, pero no se activó ninguna suscripción
   Realtime ni se escribió código que la use.
@@ -54,8 +55,12 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 
 ## Emergency Corridor / Mobility / Traffic
 
-- Todo el dominio Emergency (corredor dinámico, Conflict Engine, Alert Policy) —
-  0% implementado, solo diseñado conceptualmente en el prompt maestro.
+- **Actualizado 2026-08-18:** primera porción construida — tabla
+  `emergency_vehicles` (autorización de ambulancias verificadas, RLS sin
+  autoservicio) y helper `is_verified_ambulance_driver()`. Ver
+  `docs/decisions/ADR-0006-emergency-corridor.md`. El resto del dominio Emergency
+  (corredor dinámico, Conflict Engine, Alert Policy, tracking GPS) sigue en 0% —
+  depende de Location & Navigation (Fase 2 del cronograma), que todavía no existe.
 - `MobilityEvent`, `HeavyVehicleEvent`, `TrafficObservation`, `TrafficRisk`.
 - Abstracciones `SignalProvider` / `PriorityDecisionEngine` (semáforos) — ni siquiera
   el `SimulationSignalProvider` inicial existe.
