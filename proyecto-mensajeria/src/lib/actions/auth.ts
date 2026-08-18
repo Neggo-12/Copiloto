@@ -67,11 +67,37 @@ function findDevTestPhone(phoneNumber: string): DevTestPhone | undefined {
   return DEV_TEST_PHONES.find((entry) => entry.phoneNumber === phoneNumber);
 }
 
-/** Email/contraseña sintéticos, determinísticos por número, para la cuenta sombra. */
+/**
+ * Email/contraseña sintéticos, determinísticos por número, para la cuenta sombra.
+ *
+ * Supabase Auth rechaza dominios "de mentira" como `*.test.internal` con
+ * "Email address ... is invalid" (confirmado el 2026-08-18 probando en vivo).
+ * Para evitar depender de un dominio propio que no existe todavía, usamos un
+ * alias "+" sobre un correo real que sí controla el equipo (Gmail y la
+ * mayoría de proveedores entregan `usuario+loquesea@dominio.com` a la misma
+ * bandeja de `usuario@dominio.com`, ignorando lo que va después del "+").
+ * Así el dominio es 100% válido para Supabase y, si alguna vez se activa
+ * "Confirm email", el correo de confirmación llega a una bandeja real en vez
+ * de perderse.
+ *
+ * Configurar en `.env.local` (nunca se commitea):
+ *   VITE_DEV_SHADOW_EMAIL_BASE="tu-correo@gmail.com"
+ */
 function devShadowCredentials(phoneNumber: string): { email: string; password: string } {
   const digitsOnly = phoneNumber.replace(/\D/g, "");
+  const base: string | undefined = import.meta.env["VITE_DEV_SHADOW_EMAIL_BASE"];
+  const [localPart, domain] = base?.includes("@") ? base.split("@") : [undefined, undefined];
+
+  const email =
+    localPart && domain
+      ? `${localPart}+dev-${digitsOnly}@${domain}`
+      : // Fallback si no se configuró VITE_DEV_SHADOW_EMAIL_BASE: probablemente
+        // Supabase también rechace este dominio (ver nota arriba), pero al
+        // menos el mensaje de error dirá con claridad qué falta configurar.
+        `dev-${digitsOnly}@copiloto.test.internal`;
+
   return {
-    email: `dev-${digitsOnly}@copiloto.test.internal`,
+    email,
     password: `dev-test-phone-${digitsOnly}-c0p1l0to`,
   };
 }
