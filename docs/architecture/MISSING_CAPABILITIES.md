@@ -92,13 +92,24 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 - `PlacesProvider` (diferido — sin consumidor real todavía).
 - Recompute automático de ruta al detectar desvío (diferido — decisión de
   producto/UX no definida todavía; cada recálculo tiene costo real).
-- Recordatorios por ubicación (geofencing + trigger) — **reprorizado
-  2026-08-19:** el fundador pidió adelantar esta Fase 7 (ver
-  `docs/decisions/05_CRONOGRAMA_EMERGENCY_Y_NUEVAS_FUNCIONALIDADES.md`), no
-  bloquea la ambulancia y ya no tiene dependencias pendientes (Fase 2 está
-  completa). Siguiente pieza de trabajo real después de este slice de
-  vehículos.
-- Recordatorios por tiempo (jobs con BullMQ).
+- **Actualizado 2026-08-19 (Fase 7 real, primer slice):** recordatorios por
+  ubicación construidos — `location_reminders` (Postgres, autoservicio, RLS
+  `user_id = auth.uid()`), `GeofenceTriggerService` (evalúa Haversine contra
+  la posición actual en cada `location:update`, dispara una sola vez de
+  forma idempotente), `ReminderCacheService` (Redis, lectura-a-través, evita
+  consultar Postgres en cada ping de ubicación — mismo motivo que ADR-0013).
+  `GET/POST /location-reminders`, `DELETE /location-reminders/:id`. No
+  geocodifica direcciones de texto internamente — reutiliza
+  `GET /navigation/geocode` (ADR-0010) del lado del llamador, evitando un
+  ciclo de módulos. Ver `docs/decisions/ADR-0015-location-reminders.md`.
+  Verificado con RLS real (simulación transaccional, incluye idempotencia
+  del disparo confirmada con conteo de filas) y un smoke test real contra
+  Redis local (13/13 casos). Pendiente: integración HTTP/WebSocket de
+  punta a punta con JWT real (mismo límite documentado desde ADR-0009),
+  notificación push cuando la app está cerrada (Fase 5), dictado por voz
+  (Fase 6), recordatorios recurrentes (no pedidos todavía).
+- Recordatorios por tiempo (jobs con BullMQ) — tipo de recordatorio
+  distinto (hora fija, no geofence), sigue sin construir.
 
 ## Emergency Corridor / Mobility / Traffic
 

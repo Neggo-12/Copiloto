@@ -12,6 +12,7 @@ import type { Server, Socket } from "socket.io";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
 import { decodePolyline } from "../../common/geo/polyline";
+import { GeofenceTriggerService, type TriggeredReminder } from "../location-reminders/geofence-trigger.service";
 import { RouteSessionService } from "../route-session/route-session.service";
 import { computeDeviation } from "../route-session/route-deviation";
 import { LocationBroadcastService } from "./location-broadcast.service";
@@ -49,6 +50,7 @@ export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
     private readonly locationState: LocationStateService,
     private readonly routeSession: RouteSessionService,
     private readonly broadcast: LocationBroadcastService,
+    private readonly geofenceTrigger: GeofenceTriggerService,
   ) {}
 
   /** Registra la instancia real de Socket.IO en `LocationBroadcastService` — así `AlertPolicyService` (otro módulo) puede mandar eventos sin depender de este gateway directamente. */
@@ -88,6 +90,7 @@ export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
     quality?: string;
     rejectionReason?: string;
     route?: { onRoute: boolean; distanceFromRouteMeters: number };
+    remindersTriggered?: TriggeredReminder[];
   }> {
     const userId = client.data?.userId;
     if (!userId) {
@@ -117,6 +120,16 @@ export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
       }
     }
 
-    return { accepted: true, quality: validation.quality, route };
+    const remindersTriggered = await this.geofenceTrigger.checkAndTrigger(userId, {
+      latitude: normalized.latitude,
+      longitude: normalized.longitude,
+    });
+
+    return {
+      accepted: true,
+      quality: validation.quality,
+      route,
+      remindersTriggered: remindersTriggered.length > 0 ? remindersTriggered : undefined,
+    };
   }
 }
