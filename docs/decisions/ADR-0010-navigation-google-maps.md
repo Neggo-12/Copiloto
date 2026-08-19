@@ -1,9 +1,8 @@
 # ADR-0010 — Adapters de Routing y Geocoding (Fase 2, slice 2)
 
 **Fecha:** 2026-08-19
-**Estado:** Aceptado — código construido y verificado por typecheck/lint/build.
-Verificación real contra la API de Google (con key real) queda pendiente de que
-el fundador provisione `GOOGLE_MAPS_API_KEY`.
+**Estado:** Aceptado y verificado de punta a punta contra la API real de
+Google (key de producción del fundador, restringida por IP + por API).
 
 ## Contexto
 
@@ -63,14 +62,23 @@ consumidor, no antes ("no complejidad sin evidencia").
 ## Verificación
 
 - `typecheck`/`lint`/`build`: limpios (real, contra el código compilado).
-- **Límite honesto de esta verificación:** no se hizo ninguna llamada real a
-  Google Routes API ni Geocoding API todavía, porque este entorno no tiene
-  (ni debe tener) una `GOOGLE_MAPS_API_KEY` — es una credencial que solo el
-  fundador puede crear y pagar. El siguiente paso es que el fundador cree la
-  key (pasos entregados en el chat) y la pegue en `backend/.env`; con eso
-  puesto, la verificación real (llamada real a ambas APIs, con coordenadas
-  reales) se hace contra su máquina — mismo patrón usado para verificar Redis
-  contra la instancia real de Upstash en ADR-0008.
+- **Actualizado 2026-08-19:** el fundador creó la API key en Google Cloud
+  Console (proyecto `copiloto-506002`), habilitó Routes API y Geocoding API,
+  configuró facturación por pago por uso (sin plan de suscripción — decisión
+  explícita para no sobredimensionar en esta etapa), y restringió la key por
+  IP (dirección de su conexión, IPv4 + IPv6 en notación `/128`) y por API
+  (solo Routes API + Geocoding API). Con la key puesta en `backend/.env`
+  (verificada de forma enmascarada: 39 caracteres, prefijo `AIzaSy...`, sin
+  ver el valor completo), se hicieron dos llamadas reales, no simuladas,
+  desde la máquina del fundador contra la API real de Google:
+  - **Geocoding API:** `address=Parque Berrio Medellin` → `status: OK`,
+    coordenadas correctas (`6.2500271, -75.5681333`), dirección formateada
+    correcta.
+  - **Routes API (`computeRoutes`):** ruta real Parque Berrío → El Poblado
+    (Medellín) → `distanceMeters: 7287`, `duration: 1083s` (~18 min),
+    polyline codificada devuelta correctamente.
+  Ambas respuestas son datos reales de Google, no mockeados — mismo estándar
+  de verificación usado para Redis/Upstash en ADR-0008.
 
 ## Consecuencias
 
@@ -81,8 +89,15 @@ consumidor, no antes ("no complejidad sin evidencia").
 - Cada llamada a estos endpoints tiene costo real de Google Maps Platform
   (pricing por SKU/uso) — no diseñar el sistema asumiendo llamadas gratis
   ilimitadas, tal como advierte `03_HERRAMIENTAS_URLS_Y_REFERENCIAS.md` §18.
+  Con pago por uso, las primeras 10.000 llamadas mensuales por API (Routes y
+  Geocoding, cada una por separado) no tienen costo — más que suficiente para
+  el piloto de 50-100 usuarios.
 - `PlacesProvider` y la detección de desvío de ruta (route-deviation) quedan
   explícitamente pendientes, documentados como deuda intencional, no omisión.
+- La restricción por IP de la key hay que revisarla si la IP del fundador
+  cambia (algunos ISP la rotan) o cuando el backend se despliegue a un
+  servidor de producción con IP fija distinta — hoy apunta a la conexión de
+  desarrollo local del fundador.
 
 ## Referencias
 

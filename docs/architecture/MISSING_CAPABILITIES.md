@@ -73,7 +73,11 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   Aclaración: "Navigation SDK" de Google es un SDK de cliente (Android/iOS),
   no una API de backend — no existe un `NavigationProvider` de backend
   separado; la lógica de navegación de backend (ETA, futuro desvío de ruta)
-  se construye sobre `RoutingProvider`. Pendiente:
+  se construye sobre `RoutingProvider`. **Verificado real 2026-08-19:**
+  llamadas reales contra Google con la key de producción del fundador —
+  Geocoding (`Parque Berrío, Medellín` → status OK, coordenadas correctas) y
+  Routes (Parque Berrío → El Poblado → 7.287m, ~18min, polyline real).
+  Pendiente:
 - Permisos y sesión de ubicación foreground (lado cliente/app).
 - `PlacesProvider` (diferido — sin consumidor real todavía).
 - Detección de desvío de ruta (route-deviation) sobre `RoutingProvider` +
