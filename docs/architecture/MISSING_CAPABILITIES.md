@@ -92,7 +92,12 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 - `PlacesProvider` (diferido — sin consumidor real todavía).
 - Recompute automático de ruta al detectar desvío (diferido — decisión de
   producto/UX no definida todavía; cada recálculo tiene costo real).
-- Recordatorios por ubicación (geofencing + trigger).
+- Recordatorios por ubicación (geofencing + trigger) — **reprorizado
+  2026-08-19:** el fundador pidió adelantar esta Fase 7 (ver
+  `docs/decisions/05_CRONOGRAMA_EMERGENCY_Y_NUEVAS_FUNCIONALIDADES.md`), no
+  bloquea la ambulancia y ya no tiene dependencias pendientes (Fase 2 está
+  completa). Siguiente pieza de trabajo real después de este slice de
+  vehículos.
 - Recordatorios por tiempo (jobs con BullMQ).
 
 ## Emergency Corridor / Mobility / Traffic
@@ -118,8 +123,22 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   Redis real (5/5 casos) y con un servidor+cliente Socket.IO reales (3/3
   casos, entrega real por WebSocket confirmada).
   Todavía en 0%: buffer dinámico por velocidad, estados `ACTIVE_CONFLICT`/
-  `PASSED`, diferenciación carro/moto (bloqueada por falta de dato de tipo de
-  vehículo — ver "Producto / Decisiones abiertas"), tracking histórico GPS.
+  `PASSED`, diferenciación carro/moto (el dato ya existe desde 2026-08-19 —
+  ver `user_vehicles` abajo — pero conectarlo a `AlertPolicyService` sigue
+  sin construirse, es un incremento pequeño pendiente), tracking histórico
+  GPS.
+
+**Actualizado 2026-08-19 (registro de vehículos y modo de manejo):** tabla
+`user_vehicles` (Postgres, autoservicio, RLS `user_id = auth.uid()`, a lo
+sumo un carro y una moto por usuario) y `DrivingModeService` (Redis, TTL
+24h, "cuál vehículo estoy usando ahora"). `VehiclesModule` con
+`GET/POST/DELETE /vehicles/:vehicleType` y
+`GET/POST/DELETE /vehicles/driving-mode`. Ver
+`docs/decisions/ADR-0014-vehicle-registration-and-driving-mode.md`.
+Verificado con RLS real (simulación transaccional con JWT real: dedup de
+tipo, aislamiento entre usuarios, unicidad por tipo, todos confirmados) y
+`get_advisors` sin alertas nuevas. Desbloquea la diferenciación carro/moto
+de Alert Policy (pendiente, ver arriba) — todavía no conectada.
 - `MobilityEvent`, `HeavyVehicleEvent`, `TrafficObservation`, `TrafficRisk`.
 - Abstracciones `SignalProvider` / `PriorityDecisionEngine` (semáforos) — ni siquiera
   el `SimulationSignalProvider` inicial existe.
@@ -154,10 +173,24 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   tener una ruta activa); falta la decisión de producto de qué tipo de
   permiso pedir y cuándo, y la implementación del lado del cliente (todavía
   sin construir).
-- **Agregado 2026-08-19:** tipo de vehículo del usuario (carro/moto/otro) —
-  no se captura en ningún punto del sistema todavía. Bloquea diferenciar el
-  Alert Policy de Emergency Corridor (visual+audio para carro, voz
-  prioritaria para moto, de la visión completa del fundador).
+- **Resuelto 2026-08-19 (ver ADR-0014):** tipo de vehículo del usuario
+  (carro/moto) ya se captura (`user_vehicles`). Sigue abierta la conexión de
+  ese dato con el Alert Policy de Emergency Corridor (visual+audio para
+  carro, voz prioritaria para moto) — el dato existe, falta el trabajo de
+  conectarlo.
+- **Agregado 2026-08-19:** unicidad global de placa (`plate`) — hoy
+  `user_vehicles` no impide que dos usuarios distintos registren la misma
+  placa. El fundador mencionó un propósito de seguridad futuro ("luego nos
+  puede servir") sin definir el caso de uso real todavía (quién consulta,
+  cuándo, con qué autorización) — agregar la restricción sin ese caso de uso
+  sería complejidad sin evidencia. Pendiente de decisión de producto.
+- **Agregado 2026-08-19:** velocidad por sectores — comparar velocidad
+  actual del usuario contra un límite local y mostrar un mensaje. Pedido
+  explícitamente como PENDIENTE por el fundador. Restricción de tono ya
+  fijada para cuando se construya: **informativo, nunca punitivo ni
+  alarmante** ("no se estas siendo irresponsable" — no debe sonar así).
+  Cero código todavía; ni siquiera diseño de dónde saldría el dato de límite
+  de velocidad por sector.
 
 **Actualizado 2026-08-18 (tarde):** el proyecto Supabase "Copiloto" ya existe
 (`wrkuusacwkdazfwynhkz`, región `ca-central-1`, `ACTIVE_HEALTHY`, creado 2026-08-16).

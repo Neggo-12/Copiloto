@@ -61,6 +61,43 @@ forma responsable de probar "conflicto detectado" con vehículos reales en la ca
 La Fase 5 (resto de mensajería) puede avanzar en paralelo sin quitarle tiempo a la
 ambulancia, porque no comparte dependencias técnicas con Location/Emergency.
 
+## Reordenamiento 2026-08-19: Fase 7 adelantada
+
+El fundador pidió adelantar la Fase 7 (Recordatorios por ubicación) y
+preguntó cuáles fases la preceden. Respuesta, mirando la tabla de arriba:
+Fase 7 depende únicamente de **Fase 2 (Location & Navigation)**, que ya está
+100% completa y verificada contra Google Maps real. No depende de Fase 3
+(Emergency Corridor, en curso), ni de Fase 4 (Simulación) ni de Fase 6
+(Asistente de voz) — esas dependencias son solo de numeración de tabla, no
+técnicas.
+
+**Orden de ejecución ajustado** (los números de fase no cambian, para no
+romper referencias cruzadas en ADRs existentes; lo que cambia es el orden en
+que se ejecutan):
+
+```
+Fase 3 (Emergency Corridor, en curso) → Fase 7 (Recordatorios por ubicación)
+→ Fase 4 (Simulación) → Fase 6 (Asistente de voz)
+```
+
+Fase 7 se adelanta frente a Fase 4 y Fase 6 porque: (a) no depende
+técnicamente de ninguna de las dos, (b) reutiliza infraestructura que ya
+existe y está verificada (`LocationStateService`, el stream de
+`location:update` por WebSocket), y (c) es la pieza que hace realidad el
+requisito del fundador de que la plataforma funcione completa como app de
+mensajería para cualquier usuario, tenga o no vehículo (input de texto
+primero; dictado por voz es una capacidad de Fase 6, se conecta después). La
+Fase 4 (Simulación del corredor) sigue bloqueada por completar Fase 3, así
+que no se pierde nada adelantando Fase 7 mientras tanto — es tiempo que de
+otra forma quedaría esperando.
+
+Como paso previo a Fase 7 se construyó el registro de vehículos y "modo de
+manejo" (`docs/decisions/ADR-0014-vehicle-registration-and-driving-mode.md`)
+— no es parte formal de ninguna fase numerada del roadmap original, pero es
+un requisito de producto nuevo del fundador (carro+moto, modo de manejo) que
+tenía sentido cerrar antes de entrar a recordatorios, dado que ambos tocan
+"estado del usuario en este momento".
+
 ## Próximo paso concreto
 
 Para arrancar la Fase 1 ya mismo, el primer bloque de trabajo es:
