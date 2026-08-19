@@ -70,13 +70,21 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   Platform en ADR-0010). Cuando exista, se conecta al Tool Registry ya
   construido: `GET /assistant/tools` como config de `tools` de la sesión,
   cada function-call de OpenAI → `POST /assistant/tools/:toolName/execute`.
-- Tools de mensajería (`read_message`, `send_message`) — bloqueadas porque
-  el dominio de mensajería vive en `proyecto-mensajeria/` hablando con
-  Supabase directo, sin capa de aplicación NestJS que envolver todavía
-  (Fase 5, en paralelo, sin construir). Construirlas ahora habría
-  significado la IA hablando con Supabase directo (viola la regla de
-  seguridad del proyecto) o apurar un backend de mensajería solo para
-  esto — ninguna opción es honesta, queda como gap real documentado.
+- **Resuelto 2026-08-19:** tools de mensajería construidas — `list_chats`,
+  `read_messages`, `send_message` en `backend/src/modules/assistant/tools/`,
+  sobre un nuevo `MessagingModule` que envuelve las MISMAS tablas que ya usa
+  `proyecto-mensajeria` (`chats`, `chat_participants`, `messages`,
+  `contacts`, `profiles`). Autorización reimplementada a mano (mismo criterio
+  que la RLS real: `sender_id` siempre es el `userId` del JWT, nunca un
+  argumento; se verifica pertenencia al chat antes de leer o escribir).
+  `send_message` exige confirmación explícita (`requiresConfirmation =
+  true`), mismo criterio que `activate_emergency_corridor`. Ver
+  `docs/decisions/ADR-0018-messaging-bridge.md`. **Alcance a propósito, sigue
+  sin resolver:** solo chats 1 a 1 y mensajes de TEXTO — notas de voz,
+  fotos/documentos, ubicación y grupos siguen siendo simulación local en
+  `proyecto-mensajeria` (no hay dato real en Supabase todavía), así que el
+  asistente tampoco puede leer/mandar una nota de voz de verdad hoy. Esto es
+  independiente de Gemini/Realtime.
 - `create_reminder` (por tiempo, hora fija, BullMQ) — tipo de recordatorio
   distinto a `create_location_reminder` (geofence, ya existe); sigue sin
   construir, depende de jobs con BullMQ.

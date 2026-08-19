@@ -4,7 +4,10 @@ import { ActivateEmergencyCorridorTool } from "./tools/activate-emergency-corrid
 import { CalculateRouteTool } from "./tools/calculate-route.tool";
 import { CreateLocationReminderTool } from "./tools/create-location-reminder.tool";
 import { GetDrivingModeTool } from "./tools/get-driving-mode.tool";
+import { ListChatsTool } from "./tools/list-chats.tool";
 import { ListVehiclesTool } from "./tools/list-vehicles.tool";
+import { ReadMessagesTool } from "./tools/read-messages.tool";
+import { SendMessageTool } from "./tools/send-message.tool";
 import { SetDrivingModeTool } from "./tools/set-driving-mode.tool";
 
 export interface ToolDescriptor {
@@ -35,8 +38,21 @@ export class AssistantToolsService {
     setDrivingMode: SetDrivingModeTool,
     getDrivingMode: GetDrivingModeTool,
     listVehicles: ListVehiclesTool,
+    listChats: ListChatsTool,
+    readMessages: ReadMessagesTool,
+    sendMessage: SendMessageTool,
   ) {
-    const registry: AssistantTool[] = [createLocationReminder, calculateRoute, activateEmergencyCorridor, setDrivingMode, getDrivingMode, listVehicles];
+    const registry: AssistantTool[] = [
+      createLocationReminder,
+      calculateRoute,
+      activateEmergencyCorridor,
+      setDrivingMode,
+      getDrivingMode,
+      listVehicles,
+      listChats,
+      readMessages,
+      sendMessage,
+    ];
     this.tools = new Map(registry.map((tool) => [tool.name, tool]));
   }
 
