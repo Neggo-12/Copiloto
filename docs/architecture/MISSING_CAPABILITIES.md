@@ -61,10 +61,23 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   detección de salto implausible vía Haversine), estado caliente en Redis
   (`LocationStateService`, TTL 300s, ventana stale 30s) y `GET /location/me`.
   Ver `docs/decisions/ADR-0009-location-engine.md`. Persistencia histórica en
-  PostGIS deliberadamente NO construida todavía (sin consumidor real). Pendiente:
+  PostGIS deliberadamente NO construida todavía (sin consumidor real).
+- **Actualizado 2026-08-19 (2):** segundo slice construido — `RoutingProvider`
+  (Google Routes API, `computeRoutes`) y `GeocodingProvider` (Google Geocoding
+  API, forward + reverse), detrás de interfaces intercambiables por proveedor,
+  con endpoints `/navigation/route`, `/navigation/geocode`,
+  `/navigation/reverse-geocode` (protegidos, `SupabaseAuthGuard`). Ver
+  `docs/decisions/ADR-0010-navigation-google-maps.md`. `GOOGLE_MAPS_API_KEY`
+  todavía no está provisionada por el fundador — código verificado por
+  typecheck/lint/build, verificación real contra la API pendiente de la key.
+  Aclaración: "Navigation SDK" de Google es un SDK de cliente (Android/iOS),
+  no una API de backend — no existe un `NavigationProvider` de backend
+  separado; la lógica de navegación de backend (ETA, futuro desvío de ruta)
+  se construye sobre `RoutingProvider`. Pendiente:
 - Permisos y sesión de ubicación foreground (lado cliente/app).
-- Adapters `RoutingProvider`, `GeocodingProvider`, `PlacesProvider`,
-  `NavigationProvider` sobre Google Maps Platform (requiere API key del fundador).
+- `PlacesProvider` (diferido — sin consumidor real todavía).
+- Detección de desvío de ruta (route-deviation) sobre `RoutingProvider` +
+  `LocationStateService` (diferido — sin consumidor real todavía).
 - Recordatorios por ubicación (geofencing + trigger).
 - Recordatorios por tiempo (jobs con BullMQ).
 

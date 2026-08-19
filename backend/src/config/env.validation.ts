@@ -6,6 +6,13 @@
  * único connection string ("rediss://default:<password>@<host>:<port>",
  * TLS incluido en el esquema). Requerido: Redis/BullMQ ya son infraestructura
  * real del proyecto, no una pieza opcional.
+ *
+ * GOOGLE_MAPS_API_KEY: adapters de routing/geocoding (ADR-0010) — opcional
+ * por ahora, igual que REDIS_URL antes de que Upstash quedara decidido. El
+ * fundador todavía no la ha provisionado; los endpoints de `/navigation`
+ * fallan con un error claro (503) si se llaman sin ella configurada, en vez
+ * de tumbar el arranque de todo el backend. Se sube a requerida cuando esté
+ * configurada en producción.
  */
 export interface EnvConfig {
   NODE_ENV: "development" | "production" | "test";
@@ -13,6 +20,7 @@ export interface EnvConfig {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   REDIS_URL: string;
+  GOOGLE_MAPS_API_KEY: string | undefined;
 }
 
 const REQUIRED_KEYS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "REDIS_URL"] as const;
@@ -32,5 +40,6 @@ export function validateEnv(raw: Record<string, unknown>): EnvConfig {
     SUPABASE_URL: raw.SUPABASE_URL as string,
     SUPABASE_SERVICE_ROLE_KEY: raw.SUPABASE_SERVICE_ROLE_KEY as string,
     REDIS_URL: raw.REDIS_URL as string,
+    GOOGLE_MAPS_API_KEY: (raw.GOOGLE_MAPS_API_KEY as string | undefined) || undefined,
   };
 }

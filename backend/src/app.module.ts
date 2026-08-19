@@ -4,10 +4,12 @@ import { validateEnv } from "./config/env.validation";
 import { SupabaseModule } from "./common/supabase/supabase.module";
 import { RedisModule } from "./common/redis/redis.module";
 import { QueueModule } from "./common/queue/queue.module";
+import { GoogleMapsModule } from "./common/google-maps/google-maps.module";
 import { HealthController } from "./modules/health/health.controller";
 import { EmergencyModule } from "./modules/emergency/emergency.module";
 import { SystemQueueModule } from "./modules/system/system-queue.module";
 import { LocationModule } from "./modules/location/location.module";
+import { NavigationModule } from "./modules/navigation/navigation.module";
 
 @Module({
   imports: [
@@ -18,9 +20,11 @@ import { LocationModule } from "./modules/location/location.module";
     SupabaseModule,
     RedisModule,
     QueueModule,
+    GoogleMapsModule,
     EmergencyModule,
     SystemQueueModule,
     LocationModule,
+    NavigationModule,
   ],
   controllers: [HealthController],
 })
