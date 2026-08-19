@@ -1,13 +1,27 @@
 export type ReminderStatus = "pending" | "triggered" | "cancelled";
 
+/**
+ * `location`: recordatorio geolocalizado (dispara por geofence, como antes).
+ * `note`: nota/tarea de la libreta personal — sin coordenadas, no pasa por
+ * el geofence. Unificación de "Notas" (antes local-only en el frontend) y
+ * "Recordatorios" (antes solo geolocalizados) en una sola tabla — ver
+ * ADR-0023.
+ */
+export type ReminderKind = "location" | "note";
+
 export interface LocationReminder {
   id: string;
+  kind: ReminderKind;
+  title: string | null;
   message: string;
-  latitude: number;
-  longitude: number;
-  radiusMeters: number;
+  latitude: number | null;
+  longitude: number | null;
+  radiusMeters: number | null;
   label: string | null;
   status: ReminderStatus;
+  isTask: boolean;
+  completedAt: string | null;
+  archivedAt: string | null;
   createdAt: string;
   triggeredAt: string | null;
   cancelledAt: string | null;
@@ -16,7 +30,7 @@ export interface LocationReminder {
 /**
  * Forma reducida que se cachea en Redis — solo lo necesario para evaluar el
  * geofence en el hot path de cada `location:update`, no el registro
- * completo (ver `ReminderCacheService`).
+ * completo (ver `ReminderCacheService`). Solo existe para `kind: "location"`.
  */
 export interface CachedReminder {
   id: string;

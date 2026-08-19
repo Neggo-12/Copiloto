@@ -86,7 +86,8 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   asistente tampoco puede leer/mandar una nota de voz de verdad hoy. Esto es
   independiente de Gemini/Realtime.
 - `create_reminder` (por tiempo, hora fija, BullMQ) — tipo de recordatorio
-  distinto a `create_location_reminder` (geofence, ya existe); sigue sin
+  distinto a `create_location_reminder` (geofence, ya existe) y a la nota
+  simple sin hora (`kind: "note"`, ADR-0023, ya existe); sigue sin
   construir, depende de jobs con BullMQ.
 
 ## Location / Maps / Navigation
@@ -142,10 +143,21 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   del disparo confirmada con conteo de filas) y un smoke test real contra
   Redis local (13/13 casos). Pendiente: integración HTTP/WebSocket de
   punta a punta con JWT real (mismo límite documentado desde ADR-0009),
-  notificación push cuando la app está cerrada (Fase 5), dictado por voz
-  (Fase 6), recordatorios recurrentes (no pedidos todavía).
+  notificación push cuando la app está cerrada (Fase 5), recordatorios
+  recurrentes (no pedidos todavía). **Corrección:** el dictado por voz de
+  este tipo de recordatorio NO estaba pendiente — `create_location_reminder`
+  (ADR-0016) ya lo cubre desde ese slice; la nota anterior aquí lo daba por
+  "futuro" por error, corregido el 2026-08-19.
+- **Actualizado 2026-08-19 (ADR-0023):** "Notas" (antes 100% local/mock, sin
+  backend) y "Recordatorios" se unificaron en una sola sección —
+  `location_reminders` extendida con `kind` (`"location"`\|`"note"`),
+  `title`, `is_task`, `completed_at`, `archived_at`; `latitude`/`longitude`
+  ahora nullable con un constraint que exige coordenadas solo para
+  `kind: "location"`. Notas y tareas (sin ubicación) ahora tienen backend
+  real por primera vez. Ver `docs/decisions/ADR-0023-unified-notes-and-reminders.md`.
 - Recordatorios por tiempo (jobs con BullMQ) — tipo de recordatorio
-  distinto (hora fija, no geofence), sigue sin construir.
+  distinto (hora fija, no geofence), sigue sin construir. Es el gap real
+  restante de esta sección tras ADR-0023.
 
 ## Emergency Corridor / Mobility / Traffic
 

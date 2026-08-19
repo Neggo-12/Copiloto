@@ -7,7 +7,7 @@ import { EmailStep, EmailVerifyStep } from "@/components/onboarding/EmailStep";
 import { ProfileStep } from "@/components/onboarding/ProfileStep";
 import { PermissionsStep } from "@/components/onboarding/PermissionsStep";
 import { ChatsTab } from "@/components/chats/ChatsTab";
-import { NotesTab } from "@/components/notes/NotesTab";
+import { RemindersTab } from "@/components/reminders/RemindersTab";
 import { ContactsTab } from "@/components/contacts/ContactsTab";
 import { CopilotoTab } from "@/components/copiloto/CopilotoTab";
 import { ProfileTab } from "@/components/profile/ProfileTab";
@@ -111,7 +111,7 @@ function MainShell() {
         onOpenChatIdChange={setOpenChatId}
       />
     );
-  if (activeTab === "notes") return <NotesTab tabBar={tabBar} />;
+  if (activeTab === "notes") return <RemindersTab tabBar={tabBar} />;
   if (activeTab === "contacts")
     return (
       <ContactsTab

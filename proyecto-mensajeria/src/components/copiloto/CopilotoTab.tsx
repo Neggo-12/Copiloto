@@ -1,34 +1,33 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useDrivingMode } from "@/hooks/useDrivingMode";
-import { useLocationReminders } from "@/hooks/useLocationReminders";
 import { useCopilotoRealtime } from "@/hooks/useCopilotoRealtime";
 import { ModoManejoScreen } from "./ModoManejoScreen";
-import { RecordatoriosScreen } from "./RecordatoriosScreen";
 import { EmergenciaScreen } from "./EmergenciaScreen";
 import { NotificacionesScreen } from "./NotificacionesScreen";
 
-export type CopilotoSubTab = "modo" | "emergencia" | "recordatorios" | "notificaciones";
+export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones";
 
 const SUB_TABS: { key: CopilotoSubTab; label: string }[] = [
   { key: "modo", label: "Modo" },
   { key: "emergencia", label: "Emergencia" },
-  { key: "recordatorios", label: "Recordatorios" },
   { key: "notificaciones", label: "Alertas" },
 ];
 
 /**
  * Pestaña "Copiloto": agrupa las capacidades reales del backend NestJS
- * (Modo de manejo, Emergencia, Recordatorios, Notificaciones) detrás de un
- * selector interno — la barra inferior principal ya tiene sus 4 pestañas de
- * mensajería, así que esta vive como una quinta pestaña con su propia
- * sub-navegación (misma idea que ya usa Perfil para sus subpantallas, pero
- * como pestañas horizontales en vez de navegación a otra pantalla).
+ * (Modo de manejo, Emergencia, Notificaciones) detrás de un selector interno
+ * — la barra inferior principal ya tiene sus 4 pestañas de mensajería, así
+ * que esta vive como una quinta pestaña con su propia sub-navegación (misma
+ * idea que ya usa Perfil para sus subpantallas, pero como pestañas
+ * horizontales en vez de navegación a otra pantalla).
+ *
+ * "Recordatorios" ya no vive aquí — se unificó con "Notas" en una sola
+ * sección (pestaña principal "Notas"), ver ADR-0023.
  */
 export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
   const [subTab, setSubTab] = useState<CopilotoSubTab>("modo");
   const drivingMode = useDrivingMode();
-  const reminders = useLocationReminders();
   const realtime = useCopilotoRealtime();
 
   const subNav = (
@@ -54,8 +53,6 @@ export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
   switch (subTab) {
     case "modo":
       return <ModoManejoScreen controller={drivingMode} tabBar={tabBar} subNav={subNav} />;
-    case "recordatorios":
-      return <RecordatoriosScreen controller={reminders} tabBar={tabBar} subNav={subNav} />;
     case "emergencia":
       return <EmergenciaScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />;
     case "notificaciones":

@@ -49,14 +49,14 @@ export class CreateLocationReminderTool implements AssistantTool {
       return { status: "error", message: `No encontré la dirección "${address}".` };
     }
 
-    const reminder = await this.reminders.create(
-      ctx.userId,
+    const reminder = await this.reminders.create(ctx.userId, {
+      kind: "location",
       message,
-      geocoded.location.latitude,
-      geocoded.location.longitude,
+      latitude: geocoded.location.latitude,
+      longitude: geocoded.location.longitude,
       radiusMeters,
-      geocoded.formattedAddress,
-    );
+      label: geocoded.formattedAddress,
+    });
 
     return {
       status: "ok",

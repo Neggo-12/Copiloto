@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
-import type { CachedReminder, LocationReminder, ReminderStatus } from "./location-reminders.types";
+import type { CachedReminder, LocationReminder, ReminderKind, ReminderStatus } from "./location-reminders.types";
 
 /**
  * Radio del geofence si el usuario no especifica uno. 300m cubre "pasar
@@ -15,12 +15,17 @@ const DEFAULT_RADIUS_METERS = 300;
 
 interface LocationReminderRow {
   id: string;
+  kind: ReminderKind;
+  title: string | null;
   message: string;
-  latitude: number;
-  longitude: number;
-  radius_meters: number;
+  latitude: number | null;
+  longitude: number | null;
+  radius_meters: number | null;
   label: string | null;
   status: ReminderStatus;
+  is_task: boolean;
+  completed_at: string | null;
+  archived_at: string | null;
   created_at: string;
   triggered_at: string | null;
   cancelled_at: string | null;
@@ -29,19 +34,43 @@ interface LocationReminderRow {
 function toLocationReminder(row: LocationReminderRow): LocationReminder {
   return {
     id: row.id,
+    kind: row.kind,
+    title: row.title,
     message: row.message,
     latitude: row.latitude,
     longitude: row.longitude,
     radiusMeters: row.radius_meters,
     label: row.label,
     status: row.status,
+    isTask: row.is_task,
+    completedAt: row.completed_at,
+    archivedAt: row.archived_at,
     createdAt: row.created_at,
     triggeredAt: row.triggered_at,
     cancelledAt: row.cancelled_at,
   };
 }
 
-const REMINDER_COLUMNS = "id, message, latitude, longitude, radius_meters, label, status, created_at, triggered_at, cancelled_at";
+const REMINDER_COLUMNS =
+  "id, kind, title, message, latitude, longitude, radius_meters, label, status, is_task, completed_at, archived_at, created_at, triggered_at, cancelled_at";
+
+export interface CreateLocationReminderInput {
+  kind: "location";
+  message: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters?: number;
+  label?: string | null;
+}
+
+export interface CreateNoteInput {
+  kind: "note";
+  message: string;
+  title?: string | null;
+  isTask?: boolean;
+}
+
+export type CreateReminderInput = CreateLocationReminderInput | CreateNoteInput;
 
 /**
  * Envuelve `location_reminders` (Postgres, fuente real de verdad). Mismo
@@ -49,6 +78,12 @@ const REMINDER_COLUMNS = "id, message, latitude, longitude, radius_meters, label
  * (bypassa RLS) porque `SupabaseAuthGuard` ya autorizó al usuario, cada
  * query filtra explícitamente por `user_id`, y el RLS de la tabla queda
  * como defensa en profundidad para cualquier acceso directo futuro.
+ *
+ * Unifica dos capacidades antes separadas — recordatorios geolocalizados
+ * (`kind: "location"`) y la libreta de notas/tareas (`kind: "note"`, antes
+ * 100% local en el frontend, sin backend real) — en una sola tabla, un solo
+ * `user_id = auth.uid()` de RLS, y una sola sección en la app. Ver
+ * ADR-0023.
  */
 @Injectable()
 export class LocationRemindersService {
@@ -56,24 +91,53 @@ export class LocationRemindersService {
 
   constructor(@Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient) {}
 
-  async create(
-    userId: string,
-    message: string,
-    latitude: number,
-    longitude: number,
-    radiusMeters: number | undefined,
-    label: string | null,
-  ): Promise<LocationReminder> {
+  async create(userId: string, input: CreateReminderInput): Promise<LocationReminder> {
+    // Una sola forma de fila para las dos ramas (en vez de un union de dos
+    // literales): con `SupabaseClient` sin schema generado, un insert()
+    // tipado con un union de objetos de forma distinta confunde la
+    // sobrecarga de `insert()`. Los campos que no aplican a cada `kind`
+    // quedan en `null`/default, que es justo lo que la tabla espera.
+    const insertRow: {
+      user_id: string;
+      kind: "location" | "note";
+      message: string;
+      latitude: number | null;
+      longitude: number | null;
+      // NOT NULL con default 300 en la tabla — para "note" se manda el
+      // default explícito (columna no usada por ese `kind`, pero la
+      // columna sigue siendo NOT NULL).
+      radius_meters: number;
+      label: string | null;
+      title: string | null;
+      is_task: boolean;
+    } =
+      input.kind === "location"
+        ? {
+            user_id: userId,
+            kind: "location",
+            message: input.message,
+            latitude: input.latitude,
+            longitude: input.longitude,
+            radius_meters: input.radiusMeters ?? DEFAULT_RADIUS_METERS,
+            label: input.label ?? null,
+            title: null,
+            is_task: false,
+          }
+        : {
+            user_id: userId,
+            kind: "note",
+            message: input.message,
+            latitude: null,
+            longitude: null,
+            radius_meters: DEFAULT_RADIUS_METERS,
+            label: null,
+            title: input.title ?? null,
+            is_task: input.isTask ?? false,
+          };
+
     const { data, error } = await this.supabase
       .from("location_reminders")
-      .insert({
-        user_id: userId,
-        message,
-        latitude,
-        longitude,
-        radius_meters: radiusMeters ?? DEFAULT_RADIUS_METERS,
-        label,
-      })
+      .insert(insertRow)
       .select(REMINDER_COLUMNS)
       .single();
 
@@ -100,12 +164,18 @@ export class LocationRemindersService {
     return ((data ?? []) as LocationReminderRow[]).map(toLocationReminder);
   }
 
-  /** Forma reducida para poblar `ReminderCacheService` — solo lo necesario para evaluar el geofence. */
+  /**
+   * Forma reducida para poblar `ReminderCacheService` — solo lo necesario
+   * para evaluar el geofence. Filtra explícitamente `kind = "location"`:
+   * las notas/tareas (`kind: "note"`) no tienen coordenadas y nunca deben
+   * entrar al hot path de geofence de `GeofenceTriggerService`.
+   */
   async listPendingForCache(userId: string): Promise<CachedReminder[]> {
     const { data, error } = await this.supabase
       .from("location_reminders")
       .select("id, message, latitude, longitude, radius_meters")
       .eq("user_id", userId)
+      .eq("kind", "location")
       .eq("status", "pending");
 
     if (error) {
@@ -113,12 +183,16 @@ export class LocationRemindersService {
       throw error;
     }
 
-    return ((data ?? []) as Array<Pick<LocationReminderRow, "id" | "message" | "latitude" | "longitude" | "radius_meters">>).map((row) => ({
+    return (
+      (data ?? []) as Array<Pick<LocationReminderRow, "id" | "message" | "latitude" | "longitude" | "radius_meters">>
+    ).map((row) => ({
       id: row.id,
       message: row.message,
-      latitude: row.latitude,
-      longitude: row.longitude,
-      radiusMeters: row.radius_meters,
+      // Seguro por el .eq("kind", "location") de arriba: solo esas filas
+      // tienen coordenadas garantizadas (constraint `location_requires_coords`).
+      latitude: row.latitude as number,
+      longitude: row.longitude as number,
+      radiusMeters: row.radius_meters as number,
     }));
   }
 
@@ -142,6 +216,7 @@ export class LocationRemindersService {
     }
   }
 
+  /** Cancela un recordatorio de ubicación pendiente (deja de evaluarse en el geofence). */
   async cancel(userId: string, reminderId: string): Promise<void> {
     const { error } = await this.supabase
       .from("location_reminders")
@@ -152,6 +227,78 @@ export class LocationRemindersService {
 
     if (error) {
       this.logger.error(`cancel(${userId}, ${reminderId}): ${error.message}`);
+      throw error;
+    }
+  }
+
+  /** Edita título/cuerpo de una nota (autoguardado — mismo patrón que tenía el mock local). */
+  async updateText(userId: string, id: string, patch: { title?: string | null; message?: string }): Promise<void> {
+    const update: Record<string, unknown> = {};
+    if (patch.title !== undefined) update["title"] = patch.title;
+    if (patch.message !== undefined) update["message"] = patch.message;
+    if (Object.keys(update).length === 0) return;
+
+    const { error } = await this.supabase.from("location_reminders").update(update).eq("user_id", userId).eq("id", id);
+
+    if (error) {
+      this.logger.error(`updateText(${userId}, ${id}): ${error.message}`);
+      throw error;
+    }
+  }
+
+  async setIsTask(userId: string, id: string, isTask: boolean): Promise<void> {
+    // Al desmarcar "es tarea" también se limpia completed_at — una nota
+    // simple no tiene estado de tarea que mostrar.
+    const { error } = await this.supabase
+      .from("location_reminders")
+      .update({ is_task: isTask, completed_at: isTask ? undefined : null })
+      .eq("user_id", userId)
+      .eq("id", id);
+
+    if (error) {
+      this.logger.error(`setIsTask(${userId}, ${id}): ${error.message}`);
+      throw error;
+    }
+  }
+
+  async setTaskCompleted(userId: string, id: string, completed: boolean): Promise<void> {
+    const { error } = await this.supabase
+      .from("location_reminders")
+      .update({ completed_at: completed ? new Date().toISOString() : null })
+      .eq("user_id", userId)
+      .eq("id", id)
+      .eq("is_task", true);
+
+    if (error) {
+      this.logger.error(`setTaskCompleted(${userId}, ${id}): ${error.message}`);
+      throw error;
+    }
+  }
+
+  async setArchived(userId: string, id: string, archived: boolean): Promise<void> {
+    const { error } = await this.supabase
+      .from("location_reminders")
+      .update({ archived_at: archived ? new Date().toISOString() : null })
+      .eq("user_id", userId)
+      .eq("id", id);
+
+    if (error) {
+      this.logger.error(`setArchived(${userId}, ${id}): ${error.message}`);
+      throw error;
+    }
+  }
+
+  /** Borrado permanente — solo para notas/tareas (los recordatorios de ubicación se cancelan, no se borran, para conservar el historial de geofence). */
+  async remove(userId: string, id: string): Promise<void> {
+    const { error } = await this.supabase
+      .from("location_reminders")
+      .delete()
+      .eq("user_id", userId)
+      .eq("id", id)
+      .eq("kind", "note");
+
+    if (error) {
+      this.logger.error(`remove(${userId}, ${id}): ${error.message}`);
       throw error;
     }
   }
