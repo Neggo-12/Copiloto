@@ -9,6 +9,7 @@ import { PermissionsStep } from "@/components/onboarding/PermissionsStep";
 import { ChatsTab } from "@/components/chats/ChatsTab";
 import { NotesTab } from "@/components/notes/NotesTab";
 import { ContactsTab } from "@/components/contacts/ContactsTab";
+import { CopilotoTab } from "@/components/copiloto/CopilotoTab";
 import { ProfileTab } from "@/components/profile/ProfileTab";
 import { useChats } from "@/hooks/useChats";
 import { useContacts } from "@/hooks/useContacts";
@@ -131,6 +132,7 @@ function MainShell() {
         }}
       />
     );
+  if (activeTab === "copiloto") return <CopilotoTab tabBar={tabBar} />;
 
   return <ProfileTab tabBar={tabBar} />;
 }

@@ -66,4 +66,9 @@ export {
   TextT,
   Eye,
   CaretUp as ChevronUp,
+  Car,
+  Siren as Ambulance,
+  WifiHigh as Wifi,
+  WifiSlash as WifiOff,
+  Broadcast,
 } from "@phosphor-icons/react";

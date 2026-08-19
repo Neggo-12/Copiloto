@@ -1,12 +1,19 @@
-import { MessageCircle, NotebookPen, User, Users } from "@/components/shared/icons";
+import {
+  MessageCircle,
+  NavigationArrow,
+  NotebookPen,
+  User,
+  Users,
+} from "@/components/shared/icons";
 import type { AppIcon } from "@/components/shared/icons";
 
-export type MainTabKey = "chats" | "notes" | "contacts" | "profile";
+export type MainTabKey = "chats" | "notes" | "contacts" | "copiloto" | "profile";
 
 export const MAIN_TABS: Array<{ key: MainTabKey; label: string; icon: AppIcon }> = [
   { key: "chats", label: "Chats", icon: MessageCircle },
   { key: "notes", label: "Notas", icon: NotebookPen },
   { key: "contacts", label: "Contactos", icon: Users },
+  { key: "copiloto", label: "Copiloto", icon: NavigationArrow },
   { key: "profile", label: "Perfil", icon: User },
 ];
 
@@ -20,7 +27,7 @@ export function TabBar({
 }) {
   return (
     <nav className="safe-bottom shrink-0 border-t border-border bg-surface/90 backdrop-blur">
-      <ul className="grid grid-cols-4">
+      <ul className="grid grid-cols-5">
         {MAIN_TABS.map(({ key, label, icon: Icon }) => {
           const isActive = key === activeTab;
           return (
