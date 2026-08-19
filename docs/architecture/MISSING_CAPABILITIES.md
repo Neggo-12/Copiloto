@@ -161,11 +161,19 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   todavía). Ver `docs/decisions/ADR-0013-alert-policy.md`. Verificado con
   Redis real (5/5 casos) y con un servidor+cliente Socket.IO reales (3/3
   casos, entrega real por WebSocket confirmada).
+  **Actualizado 2026-08-19 (3, cierre del gap de diferenciación):**
+  `AlertPolicyService` ahora incluye `recommendedChannel` en cada evento
+  `corridor:alert` (`"visual_audio"` para carro, `"voice_priority"` para
+  moto, `"default"` para quien no fijó Modo de manejo), usando
+  `DrivingModeService` real — el texto del mensaje sigue siendo el mismo
+  para todos a propósito (el fundador dio una sola frase exacta; el canal
+  de entrega es lo que se diferencia, no la redacción). Ver
+  `docs/decisions/ADR-0017-alert-channel-differentiation.md`. Verificado
+  con Redis real, 6/6 casos.
   Todavía en 0%: buffer dinámico por velocidad, estados `ACTIVE_CONFLICT`/
-  `PASSED`, diferenciación carro/moto (el dato ya existe desde 2026-08-19 —
-  ver `user_vehicles` abajo — pero conectarlo a `AlertPolicyService` sigue
-  sin construirse, es un incremento pequeño pendiente), tracking histórico
-  GPS.
+  `PASSED`, severidad `INFO`/`WARNING`/`CRITICAL`, cierre de corredor
+  (`completed`/`cancelled`/`expired`), tracking histórico GPS — diferido a
+  propósito, sin evidencia de necesidad todavía.
 
 **Actualizado 2026-08-19 (registro de vehículos y modo de manejo):** tabla
 `user_vehicles` (Postgres, autoservicio, RLS `user_id = auth.uid()`, a lo
@@ -176,8 +184,8 @@ sumo un carro y una moto por usuario) y `DrivingModeService` (Redis, TTL
 `docs/decisions/ADR-0014-vehicle-registration-and-driving-mode.md`.
 Verificado con RLS real (simulación transaccional con JWT real: dedup de
 tipo, aislamiento entre usuarios, unicidad por tipo, todos confirmados) y
-`get_advisors` sin alertas nuevas. Desbloquea la diferenciación carro/moto
-de Alert Policy (pendiente, ver arriba) — todavía no conectada.
+`get_advisors` sin alertas nuevas. Desbloqueó la diferenciación carro/moto
+de Alert Policy — ya conectada (ver arriba, ADR-0017).
 - `MobilityEvent`, `HeavyVehicleEvent`, `TrafficObservation`, `TrafficRisk`.
 - Abstracciones `SignalProvider` / `PriorityDecisionEngine` (semáforos) — ni siquiera
   el `SimulationSignalProvider` inicial existe.
