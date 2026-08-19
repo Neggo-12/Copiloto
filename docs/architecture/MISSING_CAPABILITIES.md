@@ -80,11 +80,29 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   `send_message` exige confirmación explícita (`requiresConfirmation =
   true`), mismo criterio que `activate_emergency_corridor`. Ver
   `docs/decisions/ADR-0018-messaging-bridge.md`. **Alcance a propósito, sigue
-  sin resolver:** solo chats 1 a 1 y mensajes de TEXTO — notas de voz,
-  fotos/documentos, ubicación y grupos siguen siendo simulación local en
-  `proyecto-mensajeria` (no hay dato real en Supabase todavía), así que el
-  asistente tampoco puede leer/mandar una nota de voz de verdad hoy. Esto es
-  independiente de Gemini/Realtime.
+  sin resolver:** las tools del asistente (`list_chats`/`read_messages`/
+  `send_message`) solo cubren chats 1 a 1 y mensajes de TEXTO — el asistente
+  todavía no puede leer/mandar una nota de voz por voz (independiente de
+  Gemini/Realtime; requeriría extender `MessagingModule` para tipo `"voice"`).
+  Nota: el frontend de mensajería (`proyecto-mensajeria`) ya dejó de ser mock
+  para notas de voz — ver el bullet siguiente.
+- **Resuelto 2026-08-19 (ADR-0024):** notas de voz reales en
+  `proyecto-mensajeria` — antes `VoiceRecorder.tsx`/`VoiceNotePlayer.tsx` eran
+  100% decorativos (sin permiso de micrófono, sin grabación ni reproducción
+  real). Ahora graban con `MediaRecorder` real, suben al bucket privado
+  `voice-notes` (ya existía desde ADR-0001, sin migración nueva) y reproducen
+  con `<audio>` real vía URL firmada. Fotos/documentos y grupos siguen siendo
+  simulación local en `proyecto-mensajeria` (no hay dato real en Supabase
+  todavía para esos tipos).
+- **Resuelto 2026-08-19 (ADR-0025):** ubicación real (puntual y en vivo) en
+  `proyecto-mensajeria` — antes `MOCK_CURRENT_LOCATION` era una coordenada
+  fija y la "ubicación en vivo" nunca recibía posiciones nuevas. Ahora usa
+  GPS real del navegador, geocodificación inversa vía el backend real
+  (ADR-0010), inserción real en `messages`+`location_shares` (tabla ya
+  existía desde ADR-0001, solo faltaba agregarla a la publicación
+  `supabase_realtime`, migración de una línea), y `watchPosition` real con
+  actualizaciones periódicas mientras dura la ubicación en vivo (15
+  min/1 h/8 h). Ver `docs/decisions/ADR-0025-real-location-sharing-messaging.md`.
 - `create_reminder` (por tiempo, hora fija, BullMQ) — tipo de recordatorio
   distinto a `create_location_reminder` (geofence, ya existe) y a la nota
   simple sin hora (`kind: "note"`, ADR-0023, ya existe); sigue sin
@@ -295,6 +313,37 @@ de Alert Policy — ya conectada (ver arriba, ADR-0017).
   alarmante** ("no se estas siendo irresponsable" — no debe sonar así).
   Cero código todavía; ni siquiera diseño de dónde saldría el dato de límite
   de velocidad por sector.
+- **Agregado 2026-08-19 (decisión del fundador — verificación de
+  ambulancias):** la verificación sigue siendo revisión manual del fundador
+  (no autoservicio, ya bloqueado técnicamente desde ADR-0006), pero con una
+  pantalla de aprobación real en vez de editar filas de Supabase a mano —
+  el conductor queda como solicitud pendiente por placa, el fundador la
+  aprueba/rechaza desde una vista simple. Cero código todavía — es el
+  siguiente slice natural sobre `emergency_vehicles` (ADR-0006), no una
+  tabla nueva.
+- **Agregado 2026-08-19 (decisión del fundador — cifrado):** los mensajes de
+  `proyecto-mensajeria` serán cifrados de extremo a extremo real — ni el
+  fundador ni este backend podrán leer el contenido, ni siquiera con acceso
+  admin. Hoy NO existe ningún cifrado (los mensajes son filas de texto plano
+  en Supabase). Esto es una iniciativa de seguridad grande (manejo de
+  llaves por dispositivo, intercambio de llaves, qué pasa si alguien pierde
+  su dispositivo) que necesita su propio diseño dedicado (probablemente su
+  propio ADR de arquitectura) antes de escribir código — no es una
+  extensión trivial de mensajería. Cero código todavía. Consecuencia directa
+  para el panel admin: solo podrá mostrar METADATOS (quién le escribió a
+  quién, cuándo, conteo) nunca contenido — a menos que el fundador pida
+  después el modelo híbrido de "mensaje reportado se descifra para
+  revisión", que quedó descartado por ahora a favor de E2E real sin
+  excepciones.
+- **Agregado 2026-08-19 (decisión del fundador — empaquetado móvil):**
+  recomendado Android primero (sin necesidad de Mac ni cuenta Apple
+  Developer, distribución directa de APK a probadores sin pasar por
+  tienda), con iOS agregado poco después reusando el mismo envoltorio
+  Capacitor (costo incremental bajo una vez armado el primero) — el
+  fundador ya tiene Mac disponible, así que esa ventaja de Android pesa
+  menos en este caso concreto; decisión final pendiente de confirmación.
+  Cero código todavía — la app hoy es 100% web (TanStack Start), sin
+  ningún envoltorio nativo.
 
 **Actualizado 2026-08-18 (tarde):** el proyecto Supabase "Copiloto" ya existe
 (`wrkuusacwkdazfwynhkz`, región `ca-central-1`, `ACTIVE_HEALTHY`, creado 2026-08-16).

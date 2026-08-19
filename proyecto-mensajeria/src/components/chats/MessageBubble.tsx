@@ -217,6 +217,7 @@ export function MessageBubble({
               durationSeconds={message.attachment.durationSeconds ?? 0}
               waveform={message.attachment.waveform}
               outgoing={outgoing}
+              sourceUrl={message.attachment.url !== "#" ? message.attachment.url : null}
             />
           ) : message.kind === "image" ? (
             <div className="w-48">

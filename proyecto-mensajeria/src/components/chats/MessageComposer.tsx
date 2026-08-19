@@ -10,20 +10,21 @@ import {
   Trash2,
   X,
 } from "@/components/shared/icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { LIVE_LOCATION_OPTIONS, previewForMessage } from "@/lib/actions/chats";
 import type { LiveLocationDuration } from "@/lib/actions/chats";
 import { formatDuration } from "@/lib/format";
 import type { Message } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 
 export interface ComposerHandlers {
   onSendText: (body: string) => void;
-  onSendVoiceNote: (durationSeconds: number, waveform: number[]) => void;
+  onSendVoiceNote: (durationSeconds: number, waveform: number[], blob: Blob) => void;
   onSendAttachment: (kind: "image" | "document", fileName: string, size?: number) => void;
-  /** Comparte la ubicación actual (simulada). */
+  /** Comparte la ubicación actual real (GPS del dispositivo — ADR-0025). */
   onShareCurrentLocation: () => void;
-  /** Inicia la ubicación en tiempo real con la duración elegida (simulada). */
+  /** Inicia la ubicación en tiempo real con la duración elegida — GPS real (ADR-0025). */
   onStartLiveLocation: (duration: LiveLocationDuration) => void;
 }
 
@@ -51,33 +52,19 @@ export function MessageComposer({
     setLocationStep(null);
     setAttachOpen(false);
   };
-  const [recordingSeconds, setRecordingSeconds] = useState<number | null>(null);
-  const waveRef = useRef<number[]>([]);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recorder = useVoiceRecorder();
 
   useEffect(() => {
     setDraft(editing ? editing.body : "");
   }, [editing]);
 
   const hasText = draft.trim().length > 0;
-  const isRecording = recordingSeconds !== null;
-
-  const startRecording = () => {
-    waveRef.current = [];
-    setRecordingSeconds(0);
-    timer.current = setInterval(() => {
-      waveRef.current = [...waveRef.current, 0.25 + Math.random() * 0.75].slice(-28);
-      setRecordingSeconds((prev) => (prev ?? 0) + 0.2);
-    }, 200);
-  };
+  const isRecording = recorder.isRecording;
 
   const stopRecording = (send: boolean) => {
-    if (timer.current) clearInterval(timer.current);
-    timer.current = null;
-    const seconds = recordingSeconds ?? 0;
-    const waveform = waveRef.current;
-    setRecordingSeconds(null);
-    if (send && seconds >= 1) handlers.onSendVoiceNote(Math.round(seconds), waveform);
+    recorder.stop(send, (durationSeconds, waveform, blob) => {
+      handlers.onSendVoiceNote(durationSeconds, waveform, blob);
+    });
   };
 
   const submitText = () => {
@@ -223,16 +210,16 @@ export function MessageComposer({
             <Trash2 className="size-5" />
           </button>
           <div className="flex h-9 min-w-0 flex-1 items-center gap-[2px] overflow-hidden">
-            {waveRef.current.map((value, index) => (
+            {recorder.waveform.map((value, index) => (
               <span
                 key={index}
-                style={{ height: `${value * 100}%` }}
+                style={{ height: `${Math.max(0.08, value) * 100}%` }}
                 className="w-[3px] shrink-0 animate-pulse rounded-full bg-accent-warm"
               />
             ))}
           </div>
           <span className="font-mono text-[13px] text-muted-foreground">
-            {formatDuration(recordingSeconds ?? 0)}
+            {formatDuration(recorder.recordingSeconds)}
           </span>
           <button
             type="button"
@@ -286,13 +273,16 @@ export function MessageComposer({
             <button
               type="button"
               aria-label="Mantener presionado para grabar nota de voz"
-              onPointerDown={startRecording}
+              onPointerDown={() => void recorder.start()}
               className="press grid size-11 shrink-0 place-items-center rounded-full border border-accent-warm/40 bg-accent-warm/10 text-accent-warm-foreground dark:text-accent-warm"
             >
               <Mic className="size-5" />
             </button>
           )}
         </div>
+      )}
+      {recorder.error && (
+        <p className="pb-2 text-center text-[12px] text-destructive">{recorder.error}</p>
       )}
     </div>
   );

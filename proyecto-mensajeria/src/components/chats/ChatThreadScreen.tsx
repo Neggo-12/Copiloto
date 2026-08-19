@@ -150,7 +150,7 @@ export function ChatThreadScreen({
         </button>
       }
     >
-      {/* Banner superior mientras se comparte ubicación en vivo (simulado). */}
+      {/* Banner superior mientras se comparte ubicación en vivo (real, GPS + Postgres — ADR-0025). */}
       {liveLocation && (
         <div className="flex shrink-0 items-center gap-2.5 border-b border-border/70 bg-accent-warm/15 px-4 py-2.5">
           <NavigationArrow className="size-5 shrink-0 text-accent-warm" weight="fill" />
@@ -216,6 +216,12 @@ export function ChatThreadScreen({
         <div ref={bottomRef} />
       </div>
 
+      {controller.locationError && (
+        <p className="shrink-0 border-t border-border/70 bg-destructive/10 px-4 py-2 text-center text-[12px] text-destructive">
+          {controller.locationError}
+        </p>
+      )}
+
       <MessageComposer
         replyTo={replyTo}
         editing={editing}
@@ -230,17 +236,17 @@ export function ChatThreadScreen({
             controller.sendTextMessage(chatId, body, replyTo?.id ?? null);
             setReplyTo(null);
           },
-          onSendVoiceNote: (duration, waveform) => {
-            controller.sendVoiceNote(chatId, duration, waveform, replyTo?.id ?? null);
+          onSendVoiceNote: (duration, waveform, blob) => {
+            controller.sendVoiceNote(chatId, duration, waveform, blob, replyTo?.id ?? null);
             setReplyTo(null);
           },
           onSendAttachment: (kind, fileName, size) =>
             controller.sendAttachment(chatId, kind, fileName, size),
           onShareCurrentLocation: () => {
-            controller.shareCurrentLocation(chatId, replyTo?.id ?? null);
+            void controller.shareCurrentLocation(chatId, replyTo?.id ?? null);
             setReplyTo(null);
           },
-          onStartLiveLocation: (duration) => controller.startLiveLocation(chatId, duration),
+          onStartLiveLocation: (duration) => void controller.startLiveLocation(chatId, duration),
         }}
       />
 

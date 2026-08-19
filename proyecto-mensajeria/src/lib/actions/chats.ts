@@ -17,6 +17,7 @@ import type {
 } from "@/lib/domain/types";
 import { CURRENT_USER_ID } from "@/lib/domain/mock-data";
 import { supabase } from "@/lib/supabase/client";
+import { backend } from "@/lib/backend/client";
 
 export interface ChatsState {
   chats: Chat[];
@@ -24,15 +25,17 @@ export interface ChatsState {
 }
 
 /* ------------------------------------------------------------------ */
-/* Backend real: contactos, chats 1-a-1 y mensajes de texto (2026-08-18) */
+/* Backend real: contactos, chats 1-a-1, texto (2026-08-18), notas de voz */
+/* (ADR-0024) y ubicación puntual/en vivo (ADR-0025)                     */
 /*                                                                      */
 /* Lo de aquí abajo sí habla con Supabase (tablas chats/chat_participants/ */
-/* messages/message_status) y es lo único que de verdad le llega al otro */
-/* usuario en vivo. El resto del archivo (reacciones, notas de voz,      */
-/* fotos/documentos, ubicación, grupos, silenciar/fijar/archivar,        */
-/* mensajes que desaparecen, reenviar/editar/borrar) sigue siendo         */
-/* simulación local sobre `ChatsState` — no se sincroniza todavía. Ver    */
-/* TECHNICAL_DEBT.md para el detalle de qué falta y por qué se dejó así. */
+/* messages/message_status/location_shares, bucket voice-notes) y es lo  */
+/* único que de verdad le llega al otro usuario en vivo. El resto del    */
+/* archivo (reacciones, fotos/documentos, grupos, silenciar/fijar/       */
+/* archivar, mensajes que desaparecen, reenviar/editar/borrar) sigue      */
+/* siendo simulación local sobre `ChatsState` — no se sincroniza todavía. */
+/* Ver TECHNICAL_DEBT.md para el detalle de qué falta y por qué se dejó   */
+/* así. */
 /* ------------------------------------------------------------------ */
 
 interface ChatRow {
@@ -58,6 +61,18 @@ interface ChatParticipantRow {
   joined_at: string;
 }
 
+/** Fila real de `location_shares` — 1 a 1 con un mensaje `kind: "location"` (ver ADR-0025). */
+export interface LocationShareRow {
+  message_id?: string;
+  latitude: number;
+  longitude: number;
+  address_label: string | null;
+  is_live: boolean;
+  live_duration_minutes: number | null;
+  live_expires_at: string | null;
+  stopped_at: string | null;
+}
+
 interface MessageRow {
   id: string;
   chat_id: string;
@@ -76,6 +91,8 @@ interface MessageRow {
   edited_at: string | null;
   deleted_at: string | null;
   expires_at: string | null;
+  /** Embed de PostgREST vía FK (`location_shares.message_id -> messages.id`) — solo presente en fetches directos, no en el payload crudo de Realtime. */
+  location_shares?: LocationShareRow | LocationShareRow[] | null;
 }
 
 const CHAT_COLUMNS =
@@ -83,7 +100,7 @@ const CHAT_COLUMNS =
 const PARTICIPANT_COLUMNS =
   "chat_id, user_id, role, is_pinned, pinned_at, is_muted, muted_until, is_archived, last_read_at, joined_at";
 const MESSAGE_COLUMNS =
-  "id, chat_id, sender_id, type, content, media_url, media_file_name, media_file_size_bytes, media_duration_seconds, waveform, reply_to_id, forwarded_from_chat_id, reply_to_status_id, created_at, edited_at, deleted_at, expires_at";
+  "id, chat_id, sender_id, type, content, media_url, media_file_name, media_file_size_bytes, media_duration_seconds, waveform, reply_to_id, forwarded_from_chat_id, reply_to_status_id, created_at, edited_at, deleted_at, expires_at, location_shares(latitude, longitude, address_label, is_live, live_duration_minutes, live_expires_at, stopped_at)";
 
 function mapMessageRow(row: MessageRow): Message {
   // Con `exactOptionalPropertyTypes` no se puede asignar `undefined` a una
@@ -101,6 +118,26 @@ function mapMessageRow(row: MessageRow): Message {
         : {}),
       ...(row.waveform !== null ? { waveform: row.waveform } : {}),
     };
+    if (row.type === "location") {
+      // PostgREST embed vía FK — objeto en fetches directos (relación 1 a 1,
+      // `message_id` es PK de `location_shares`); ausente en el payload
+      // crudo de Realtime (se completa aparte, ver `applyLocationShareRow`
+      // en useChats.ts).
+      const share = Array.isArray(row.location_shares)
+        ? (row.location_shares[0] ?? null)
+        : (row.location_shares ?? null);
+      if (share) {
+        attachment = {
+          ...attachment,
+          url: googleMapsUrl(share.latitude, share.longitude),
+          latitude: share.latitude,
+          longitude: share.longitude,
+          ...(share.address_label !== null ? { address: share.address_label } : {}),
+          liveUntil: share.is_live ? share.live_expires_at : null,
+          liveEndedAt: share.stopped_at,
+        };
+      }
+    }
   }
   return {
     id: row.id,
@@ -343,6 +380,233 @@ export async function insertTextMessage(
     .single();
   if (error || !data) return null;
   return mapMessageRow(data as MessageRow);
+}
+
+/**
+ * Sube el audio real de una nota de voz al bucket privado `voice-notes`
+ * (política RLS ya existente desde el esquema original — carpeta
+ * `chat/{chatId}/...`, solo participantes del chat, ver ADR-0001/ADR-0024).
+ * Devuelve la RUTA guardada (no una URL pública — el bucket es privado; la
+ * reproducción resuelve una URL firmada bajo demanda, ver `VoiceNotePlayer`).
+ */
+export async function uploadVoiceNote(chatId: ChatId, blob: Blob): Promise<string | null> {
+  const extension = blob.type.includes("mp4") ? "m4a" : "webm";
+  const path = `chat/${chatId}/${crypto.randomUUID()}.${extension}`;
+  const { error } = await supabase.storage
+    .from("voice-notes")
+    .upload(path, blob, { contentType: blob.type || "audio/webm" });
+  if (error) {
+    console.error("[chats] uploadVoiceNote: no se pudo subir el audio", error);
+    return null;
+  }
+  return path;
+}
+
+/** Inserta un mensaje de nota de voz real (audio ya subido a Storage); le llega al otro usuario por Realtime. */
+export async function insertVoiceMessage(
+  chatId: ChatId,
+  senderId: UserId,
+  mediaPath: string,
+  durationSeconds: number,
+  waveform: number[],
+  replyToMessageId: MessageId | null = null,
+): Promise<Message | null> {
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      chat_id: chatId,
+      sender_id: senderId,
+      type: "voice",
+      media_url: mediaPath,
+      media_duration_seconds: durationSeconds,
+      waveform,
+      reply_to_id: replyToMessageId,
+    })
+    .select(MESSAGE_COLUMNS)
+    .single();
+  if (error || !data) return null;
+  return mapMessageRow(data as MessageRow);
+}
+
+/* ------------------------------------------------------------------ */
+/* Ubicación real: puntual y en tiempo real (ADR-0025)                  */
+/* ------------------------------------------------------------------ */
+
+/** Posición real del GPS del dispositivo — nunca simulada. */
+export function getRealCurrentPosition(
+  options?: PositionOptions,
+): Promise<{ latitude: number; longitude: number }> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("Este navegador no soporta geolocalización."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+      (error) => {
+        reject(
+          new Error(
+            error.code === error.PERMISSION_DENIED
+              ? "Necesitas darle permiso de ubicación a la app."
+              : "No se pudo obtener tu ubicación.",
+          ),
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 5_000, ...options },
+    );
+  });
+}
+
+/**
+ * Dirección legible vía el backend real (`GET /navigation/reverse-geocode`,
+ * Google Geocoding API — ADR-0010). Devuelve `null` si falla; no bloquea el
+ * envío de la ubicación, solo se pierde la etiqueta de texto.
+ */
+export async function reverseGeocodeAddress(
+  latitude: number,
+  longitude: number,
+): Promise<string | null> {
+  try {
+    const result = await backend.get<{ formattedAddress: string } | null>(
+      `/navigation/reverse-geocode?lat=${latitude}&lng=${longitude}`,
+    );
+    return result?.formattedAddress ?? null;
+  } catch (err) {
+    console.error("[chats] reverseGeocodeAddress: no se pudo geocodificar", err);
+    return null;
+  }
+}
+
+/**
+ * Inserta un mensaje de ubicación real: fila en `messages` (`type:
+ * "location"`) + fila hermana en `location_shares` (coordenadas —
+ * ADR-0001/ADR-0025). Si falla la segunda escritura, el mensaje se marca
+ * borrado (`messages_update_own_window`, RLS ya existente) en vez de quedar
+ * un mensaje de ubicación sin coordenadas — no hay hard-delete permitido por
+ * RLS.
+ */
+export async function insertLocationMessage(
+  chatId: ChatId,
+  senderId: UserId,
+  input: {
+    latitude: number;
+    longitude: number;
+    addressLabel: string | null;
+    isLive: boolean;
+    liveDurationSeconds?: number;
+  },
+  replyToMessageId: MessageId | null = null,
+): Promise<Message | null> {
+  const { data: messageRow, error: messageError } = await supabase
+    .from("messages")
+    .insert({
+      chat_id: chatId,
+      sender_id: senderId,
+      type: "location",
+      content: input.addressLabel,
+      reply_to_id: replyToMessageId,
+    })
+    .select(MESSAGE_COLUMNS)
+    .single();
+  if (messageError || !messageRow) {
+    console.error("[chats] insertLocationMessage: no se pudo crear el mensaje", messageError);
+    return null;
+  }
+
+  const liveExpiresAt =
+    input.isLive && input.liveDurationSeconds
+      ? new Date(Date.now() + input.liveDurationSeconds * 1000).toISOString()
+      : null;
+  const { error: shareError } = await supabase.from("location_shares").insert({
+    message_id: messageRow.id,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    address_label: input.addressLabel,
+    is_live: input.isLive,
+    live_duration_minutes:
+      input.isLive && input.liveDurationSeconds ? Math.round(input.liveDurationSeconds / 60) : null,
+    live_expires_at: liveExpiresAt,
+  });
+  if (shareError) {
+    console.error("[chats] insertLocationMessage: no se pudo guardar la ubicación", shareError);
+    await supabase
+      .from("messages")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", messageRow.id);
+    return null;
+  }
+
+  return {
+    ...mapMessageRow(messageRow as MessageRow),
+    attachment: {
+      kind: "location",
+      url: googleMapsUrl(input.latitude, input.longitude),
+      latitude: input.latitude,
+      longitude: input.longitude,
+      ...(input.addressLabel !== null ? { address: input.addressLabel } : {}),
+      liveUntil: liveExpiresAt,
+      liveEndedAt: null,
+    },
+  };
+}
+
+/** Sube una posición nueva de una ubicación en vivo ya iniciada (solo el emisor puede, ver RLS `location_shares_update_sender`). */
+export async function updateLiveLocationPosition(
+  messageId: MessageId,
+  latitude: number,
+  longitude: number,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("location_shares")
+    .update({ latitude, longitude })
+    .eq("message_id", messageId);
+  if (error) {
+    console.error("[chats] updateLiveLocationPosition: no se pudo actualizar la posición", error);
+    return false;
+  }
+  return true;
+}
+
+/** Marca una ubicación en vivo como detenida (botón "Detener" o vencimiento del temporizador local). */
+export async function stopLiveLocationShareRemote(messageId: MessageId): Promise<boolean> {
+  const { error } = await supabase
+    .from("location_shares")
+    .update({ stopped_at: new Date().toISOString() })
+    .eq("message_id", messageId);
+  if (error) {
+    console.error("[chats] stopLiveLocationShareRemote: no se pudo detener", error);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Aplica una fila de `location_shares` (llegada por Realtime, INSERT o
+ * UPDATE) al mensaje correspondiente ya en estado local — así llegan tanto
+ * la ubicación puntual del otro usuario (que llega un instante después de su
+ * mensaje) como cada actualización de una ubicación en vivo.
+ */
+export function applyLocationShareRow(state: ChatsState, row: LocationShareRow): ChatsState {
+  if (!row.message_id) return state;
+  return {
+    ...state,
+    messages: state.messages.map((message) => {
+      if (message.id !== row.message_id || message.kind !== "location") return message;
+      return {
+        ...message,
+        attachment: {
+          kind: "location",
+          url: googleMapsUrl(row.latitude, row.longitude),
+          latitude: row.latitude,
+          longitude: row.longitude,
+          ...(row.address_label !== null ? { address: row.address_label } : {}),
+          liveUntil: row.is_live ? row.live_expires_at : null,
+          liveEndedAt: row.stopped_at,
+        },
+      };
+    }),
+  };
 }
 
 /** Busca (o crea) el chat 1-a-1 real con otro usuario ya registrado. */
@@ -680,18 +944,24 @@ export function sendTextMessage(
   return sendMessage(state, { chatId, kind: "text", body: body.trim(), replyToMessageId });
 }
 
-/** Enviar nota de voz (grabación simulada en esta fase). */
+/**
+ * Burbuja optimista de nota de voz — `localUrl` es un `URL.createObjectURL`
+ * del audio real recién grabado (reproducible de inmediato, antes de que
+ * termine de subirse a Storage). Ver `reconcileSentVoiceNote` en
+ * `useChats.ts` para el envío real (ADR-0024).
+ */
 export function sendVoiceNote(
   state: ChatsState,
   chatId: ChatId,
   durationSeconds: number,
   waveform: number[],
+  localUrl: string,
   replyToMessageId: MessageId | null = null,
 ): { state: ChatsState; message: Message } {
   return sendMessage(state, {
     chatId,
     kind: "voice",
-    attachment: { kind: "voice", url: "#", durationSeconds, waveform },
+    attachment: { kind: "voice", url: localUrl, durationSeconds, waveform },
     replyToMessageId,
   });
 }
@@ -1106,17 +1376,6 @@ export const LIVE_LOCATION_OPTIONS: Array<{
 ];
 
 /**
- * Ubicación de ejemplo.
- * TODO: reemplazar por la lectura real del GPS del dispositivo (Capacitor
- * Geolocation) y por geocodificación inversa para la dirección.
- */
-export const MOCK_CURRENT_LOCATION = {
-  latitude: 4.6533,
-  longitude: -74.0836,
-  address: "Cra. 13 #85-32, Chapinero, Bogotá",
-};
-
-/**
  * Deep link a Google Maps (§10.5: abrir la app nativa de mapas con la
  * ubicación/ruta lista en vez de construir mapas propios).
  */
@@ -1124,7 +1383,7 @@ export function googleMapsUrl(latitude: number, longitude: number): string {
   return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
 }
 
-/** Abre Google Maps con la ubicación del mensaje. Simulado: solo abre la URL. */
+/** Abre Google Maps con la ubicación real del mensaje. */
 export function openLocationInMaps(message: Message): void {
   const { latitude, longitude } = message.attachment ?? {};
   if (latitude === undefined || longitude === undefined) return;
@@ -1134,50 +1393,12 @@ export function openLocationInMaps(message: Message): void {
   }
 }
 
-/** Comparte la ubicación actual como tarjeta de mapa (simulada). */
-export function shareCurrentLocation(
-  state: ChatsState,
-  chatId: ChatId,
-  replyToMessageId: MessageId | null = null,
-): { state: ChatsState; message: Message } {
-  return sendMessage(state, {
-    chatId,
-    kind: "location",
-    body: MOCK_CURRENT_LOCATION.address,
-    attachment: {
-      kind: "location",
-      url: googleMapsUrl(MOCK_CURRENT_LOCATION.latitude, MOCK_CURRENT_LOCATION.longitude),
-      ...MOCK_CURRENT_LOCATION,
-      liveUntil: null,
-      liveEndedAt: null,
-    },
-    replyToMessageId,
-  });
-}
-
-/** Inicia la ubicación en tiempo real por una duración dada (simulada). */
-export function startLiveLocation(
-  state: ChatsState,
-  chatId: ChatId,
-  duration: LiveLocationDuration,
-): { state: ChatsState; message: Message } {
-  const option = LIVE_LOCATION_OPTIONS.find((item) => item.value === duration);
-  const seconds = option?.seconds ?? 15 * 60;
-  return sendMessage(state, {
-    chatId,
-    kind: "location",
-    body: MOCK_CURRENT_LOCATION.address,
-    attachment: {
-      kind: "location",
-      url: googleMapsUrl(MOCK_CURRENT_LOCATION.latitude, MOCK_CURRENT_LOCATION.longitude),
-      ...MOCK_CURRENT_LOCATION,
-      liveUntil: new Date(Date.now() + seconds * 1000).toISOString(),
-      liveEndedAt: null,
-    },
-  });
-}
-
-/** Detiene la ubicación en vivo de un mensaje (por botón o al llegar a cero). */
+/**
+ * Actualiza localmente el estado optimista al detener una ubicación en vivo
+ * (botón "Detener" o vencimiento del temporizador); el efecto real
+ * (`stopped_at` en Postgres) lo hace `stopLiveLocationShareRemote`, llamado
+ * aparte desde `useChats.ts` — ver ADR-0025.
+ */
 export function stopLiveLocation(state: ChatsState, messageId: MessageId): ChatsState {
   return {
     ...state,
@@ -1217,7 +1438,7 @@ export function getActiveLiveLocation(
   );
 }
 
-/** Contador regresivo simulado, ej. "12:04" restantes. */
+/** Contador regresivo real, ej. "12:04" restantes. */
 export function formatLiveRemaining(message: Message, now = Date.now()): string {
   const liveUntil = message.attachment?.liveUntil;
   if (!liveUntil) return "";

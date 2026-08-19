@@ -143,6 +143,30 @@ export function useChats() {
           }));
         },
       )
+      // Ubicación real (ADR-0025): la fila de `location_shares` puede llegar
+      // un instante después del mensaje `type: "location"` que la referencia
+      // (dos inserts separados, sin transacción entre ellas desde el
+      // cliente) — INSERT le pone las coordenadas por primera vez; UPDATE
+      // trae cada posición nueva de una ubicación en vivo. Misma función
+      // pura para ambos casos, RLS ya filtra a "solo chats donde participo".
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "location_shares" },
+        (payload) => {
+          setState((prev) =>
+            chatActions.applyLocationShareRow(prev, payload.new as chatActions.LocationShareRow),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "location_shares" },
+        (payload) => {
+          setState((prev) =>
+            chatActions.applyLocationShareRow(prev, payload.new as chatActions.LocationShareRow),
+          );
+        },
+      )
       .subscribe();
 
     return () => {
@@ -252,26 +276,94 @@ export function useChats() {
     [reconcileSentMessage],
   );
 
+  /**
+   * Sube el audio real a Storage y luego inserta el mensaje real — mismo
+   * patrón de reconciliación que `reconcileSentMessage` (texto). Si la
+   * subida falla, el mensaje optimista pasa a "failed" en vez de quedar
+   * "sending" para siempre.
+   */
+  const reconcileSentVoiceNote = useCallback(
+    async (
+      tempId: MessageId,
+      chatId: ChatId,
+      durationSeconds: number,
+      waveform: number[],
+      blob: Blob,
+      replyToMessageId: MessageId | null,
+    ) => {
+      const mediaPath = await chatActions.uploadVoiceNote(chatId, blob);
+      const inserted = mediaPath
+        ? await chatActions.insertVoiceMessage(
+            chatId,
+            CURRENT_USER_ID,
+            mediaPath,
+            durationSeconds,
+            waveform,
+            replyToMessageId,
+          )
+        : null;
+      setState((prev) => {
+        if (!inserted) {
+          return {
+            ...prev,
+            messages: prev.messages.map((message) =>
+              message.id === tempId ? { ...message, status: "failed" as const } : message,
+            ),
+          };
+        }
+        const alreadyArrivedByRealtime = prev.messages.some(
+          (message) => message.id === inserted.id && message.id !== tempId,
+        );
+        if (alreadyArrivedByRealtime) {
+          return { ...prev, messages: prev.messages.filter((message) => message.id !== tempId) };
+        }
+        return {
+          ...prev,
+          messages: prev.messages.map((message) =>
+            message.id === tempId
+              ? ({ ...inserted, reactions: message.reactions } satisfies Message)
+              : message,
+          ),
+        };
+      });
+    },
+    [],
+  );
+
   const sendVoiceNote = useCallback(
     (
       chatId: ChatId,
       durationSeconds: number,
       waveform: number[],
+      blob: Blob,
       replyToMessageId: MessageId | null = null,
     ) => {
+      const localUrl = URL.createObjectURL(blob);
+      let tempId: MessageId | null = null;
       setState((prev) => {
         const result = chatActions.sendVoiceNote(
           prev,
           chatId,
           durationSeconds,
           waveform,
+          localUrl,
           replyToMessageId,
         );
-        simulateDelivery(result.message.id);
+        tempId = result.message.id;
         return result.state;
       });
+      if (tempId) {
+        void reconcileSentVoiceNote(
+          tempId,
+          chatId,
+          durationSeconds,
+          waveform,
+          blob,
+          replyToMessageId,
+        );
+      }
     },
-    [simulateDelivery],
+    [reconcileSentVoiceNote],
   );
 
   const sendAttachment = useCallback(
@@ -291,33 +383,143 @@ export function useChats() {
     [simulateDelivery],
   );
 
-  /** Comparte la ubicación actual (simulada). */
+  /**
+   * Ubicación real (ADR-0025) — sin simulación: `getRealCurrentPosition` pide
+   * el GPS real del navegador y `reverseGeocodeAddress` llama al backend real
+   * (Google Geocoding, ADR-0010). No hay burbuja optimista previa (a
+   * diferencia de texto/voz) porque no hay nada que mostrar hasta tener la
+   * posición real; el error de permiso/timeout se expone en `locationError`.
+   */
+  const [locationError, setLocationError] = useState<string | null>(null);
+  /** watchPosition + temporizador de vencimiento por cada ubicación en vivo propia activa. */
+  const liveTrackersRef = useRef(
+    new Map<MessageId, { watchId: number; expiryTimer: ReturnType<typeof setTimeout> }>(),
+  );
+
+  const stopLiveLocationTracking = useCallback((messageId: MessageId) => {
+    const tracker = liveTrackersRef.current.get(messageId);
+    if (!tracker) return;
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.clearWatch(tracker.watchId);
+    }
+    clearTimeout(tracker.expiryTimer);
+    liveTrackersRef.current.delete(messageId);
+  }, []);
+
+  /** Detiene la ubicación en vivo (botón "Detener" o vencimiento del temporizador). */
+  const stopLiveLocation = useCallback(
+    (messageId: MessageId) => {
+      stopLiveLocationTracking(messageId);
+      setState((prev) => chatActions.stopLiveLocation(prev, messageId));
+      void chatActions.stopLiveLocationShareRemote(messageId);
+    },
+    [stopLiveLocationTracking],
+  );
+
+  /** Arranca `watchPosition` real; sube posición a Supabase cada ~20s (throttle) y se detiene sola al vencer la duración. */
+  const startLiveLocationTracking = useCallback(
+    (messageId: MessageId, durationSeconds: number) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) return;
+      let lastSentAt = 0;
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const now = Date.now();
+          if (now - lastSentAt < 20_000) return;
+          lastSentAt = now;
+          void chatActions.updateLiveLocationPosition(
+            messageId,
+            position.coords.latitude,
+            position.coords.longitude,
+          );
+        },
+        (err) => console.error("[useChats] watchPosition falló", err),
+        { enableHighAccuracy: true, maximumAge: 10_000 },
+      );
+      const expiryTimer = setTimeout(() => stopLiveLocation(messageId), durationSeconds * 1000);
+      liveTrackersRef.current.set(messageId, { watchId, expiryTimer });
+    },
+    [stopLiveLocation],
+  );
+
+  /** Comparte la ubicación actual real como tarjeta de mapa. */
   const shareCurrentLocation = useCallback(
-    (chatId: ChatId, replyToMessageId: MessageId | null = null) => {
-      setState((prev) => {
-        const result = chatActions.shareCurrentLocation(prev, chatId, replyToMessageId);
-        simulateDelivery(result.message.id);
-        return result.state;
-      });
+    async (chatId: ChatId, replyToMessageId: MessageId | null = null) => {
+      setLocationError(null);
+      try {
+        const position = await chatActions.getRealCurrentPosition();
+        const address = await chatActions.reverseGeocodeAddress(
+          position.latitude,
+          position.longitude,
+        );
+        const inserted = await chatActions.insertLocationMessage(
+          chatId,
+          CURRENT_USER_ID,
+          {
+            latitude: position.latitude,
+            longitude: position.longitude,
+            addressLabel: address,
+            isLive: false,
+          },
+          replyToMessageId,
+        );
+        if (!inserted) {
+          setLocationError("No se pudo compartir tu ubicación. Intenta de nuevo.");
+          return;
+        }
+        setState((prev) => chatActions.applyIncomingMessage(prev, inserted));
+      } catch (err) {
+        setLocationError(err instanceof Error ? err.message : "No se pudo obtener tu ubicación.");
+      }
     },
-    [simulateDelivery],
+    [],
   );
 
-  /** Inicia la ubicación en tiempo real por 15 min / 1 h / 8 h (simulada). */
+  /** Inicia la ubicación en tiempo real por 15 min / 1 h / 8 h — GPS real con actualizaciones periódicas reales. */
   const startLiveLocation = useCallback(
-    (chatId: ChatId, duration: chatActions.LiveLocationDuration) => {
-      setState((prev) => {
-        const result = chatActions.startLiveLocation(prev, chatId, duration);
-        simulateDelivery(result.message.id);
-        return result.state;
-      });
+    async (chatId: ChatId, duration: chatActions.LiveLocationDuration) => {
+      setLocationError(null);
+      const option = chatActions.LIVE_LOCATION_OPTIONS.find((item) => item.value === duration);
+      const seconds = option?.seconds ?? 15 * 60;
+      try {
+        const position = await chatActions.getRealCurrentPosition();
+        const address = await chatActions.reverseGeocodeAddress(
+          position.latitude,
+          position.longitude,
+        );
+        const inserted = await chatActions.insertLocationMessage(chatId, CURRENT_USER_ID, {
+          latitude: position.latitude,
+          longitude: position.longitude,
+          addressLabel: address,
+          isLive: true,
+          liveDurationSeconds: seconds,
+        });
+        if (!inserted) {
+          setLocationError("No se pudo iniciar la ubicación en vivo. Intenta de nuevo.");
+          return;
+        }
+        setState((prev) => chatActions.applyIncomingMessage(prev, inserted));
+        startLiveLocationTracking(inserted.id, seconds);
+      } catch (err) {
+        setLocationError(err instanceof Error ? err.message : "No se pudo obtener tu ubicación.");
+      }
     },
-    [simulateDelivery],
+    [startLiveLocationTracking],
   );
 
-  /** Detiene la ubicación en vivo (botón "Detener" o contador en cero). */
-  const stopLiveLocation = useCallback((messageId: MessageId) => {
-    setState((prev) => chatActions.stopLiveLocation(prev, messageId));
+  // Los watchers de ubicación en vivo no deben sobrevivir a un desmontaje
+  // del hook (ej. cerrar sesión) — se limpian todos, igual que cualquier
+  // efecto con recursos externos.
+  useEffect(() => {
+    const trackers = liveTrackersRef.current;
+    return () => {
+      trackers.forEach((tracker) => {
+        if (typeof navigator !== "undefined" && navigator.geolocation) {
+          navigator.geolocation.clearWatch(tracker.watchId);
+        }
+        clearTimeout(tracker.expiryTimer);
+      });
+      trackers.clear();
+    };
   }, []);
 
   /** Responde a un estado: abre/crea el chat 1 a 1 y envía el mensaje citándolo. */
@@ -518,6 +720,7 @@ export function useChats() {
     shareCurrentLocation,
     startLiveLocation,
     stopLiveLocation,
+    locationError,
     replyToStatus,
     forwardMessage,
     editMessage,
