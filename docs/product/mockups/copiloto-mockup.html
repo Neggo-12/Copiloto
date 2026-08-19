@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CoPiloto — Vista previa de funcionalidades</title>
+<style>
+  :root {
+    --bg: #0f1720;
+    --panel: #f6f8fb;
+    --ink: #14202b;
+    --ink-soft: #5b6b78;
+    --line: #e3e8ee;
+    --brand: #1f6feb;
+    --brand-soft: #eaf1ff;
+    --brand-dark: #14508f;
+    --emergency: #d92d20;
+    --emergency-soft: #fdeceb;
+    --success: #12805c;
+    --success-soft: #e7f7f1;
+    --amber: #b25e09;
+    --amber-soft: #fdf1e2;
+    --moto: #7c3aed;
+    --moto-soft: #f1eafe;
+    --shadow: 0 20px 50px -20px rgba(15, 23, 32, 0.45);
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 15% 10%, rgba(31,111,235,0.18), transparent 45%),
+      radial-gradient(circle at 85% 90%, rgba(124,58,237,0.15), transparent 45%),
+      var(--bg);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 16px 60px;
+  }
+
+  .page-header {
+    text-align: center;
+    color: #f3f6fa;
+    max-width: 640px;
+    margin-bottom: 28px;
+  }
+  .page-header .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #9db4cd;
+    font-weight: 600;
+  }
+  .page-header h1 {
+    font-size: 26px;
+    margin: 8px 0 6px;
+  }
+  .page-header p {
+    font-size: 14px;
+    color: #b7c4d1;
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  .layout {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* ---------- phone frame ---------- */
+  .phone {
+    width: 340px;
+    height: 700px;
+    background: #0d1520;
+    border-radius: 44px;
+    padding: 14px;
+    box-shadow: var(--shadow);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .phone::before {
+    content: "";
+    position: absolute;
+    top: 26px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90px;
+    height: 18px;
+    background: #0d1520;
+    border-radius: 12px;
+    z-index: 5;
+  }
+  .screen {
+    width: 100%;
+    height: 100%;
+    background: var(--panel);
+    border-radius: 32px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .statusbar {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 22px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    flex-shrink: 0;
+  }
+
+  .screen-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 18px 18px;
+  }
+  .screen-content::-webkit-scrollbar { width: 0; }
+
+  .screen-title {
+    font-size: 21px;
+    font-weight: 700;
+    margin: 6px 0 2px;
+    color: var(--ink);
+  }
+  .screen-subtitle {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    margin: 0 0 16px;
+    line-height: 1.4;
+  }
+
+  /* bottom nav */
+  .tabbar {
+    height: 66px;
+    flex-shrink: 0;
+    display: flex;
+    border-top: 1px solid var(--line);
+    background: #fff;
+  }
+  .tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #9aa8b4;
+    font-size: 10.5px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 6px 2px;
+    position: relative;
+  }
+  .tab .icon { font-size: 18px; line-height: 1; }
+  .tab.active { color: var(--brand); }
+  .tab .dot {
+    position: absolute;
+    top: 4px;
+    right: 22%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--emergency);
+    border: 1.5px solid #fff;
+    display: none;
+  }
+  .tab[data-tab="notifs"] .dot { display: block; }
+
+  /* ---------- shared components ---------- */
+  .card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+  }
+  .pill.success { background: var(--success-soft); color: var(--success); }
+  .pill.amber { background: var(--amber-soft); color: var(--amber); }
+  .pill.brand { background: var(--brand-soft); color: var(--brand-dark); }
+  .pill.emergency { background: var(--emergency-soft); color: var(--emergency); }
+  .pill.moto { background: var(--moto-soft); color: var(--moto); }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin: 18px 0 8px;
+  }
+  .section-label:first-child { margin-top: 0; }
+
+  /* ---------- MODO DE MANEJO screen ---------- */
+  .mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .mode-card {
+    border-radius: 18px;
+    padding: 18px 12px;
+    text-align: center;
+    border: 2px solid var(--line);
+    background: #fff;
+    position: relative;
+    transition: transform .15s ease;
+  }
+  .mode-card .emoji { font-size: 30px; display: block; margin-bottom: 8px; }
+  .mode-card .label { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+  .mode-card .plate { font-size: 11px; color: var(--ink-soft); margin-top: 2px; font-family: "Courier New", monospace; }
+  .mode-card.selected {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+    box-shadow: 0 8px 18px -10px rgba(31,111,235,0.55);
+  }
+  .mode-card.selected::after {
+    content: "✓ activo";
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    font-size: 9.5px;
+    font-weight: 800;
+    color: var(--brand);
+    letter-spacing: 0.03em;
+  }
+
+  .assistant-bubble {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: linear-gradient(135deg, #eef4ff, #f5eefe);
+    border: 1px solid #dbe6fb;
+    border-radius: 16px;
+    padding: 12px 14px;
+    margin: 14px 0;
+  }
+  .assistant-bubble .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--brand);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px; flex-shrink: 0;
+  }
+  .assistant-bubble p { margin: 0; font-size: 12.5px; color: #33465a; line-height: 1.45; }
+  .assistant-bubble .quote { font-style: italic; color: var(--brand-dark); font-weight: 600; }
+
+  .vehicle-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .vehicle-row:last-child { border-bottom: none; }
+  .vehicle-row .ic { font-size: 20px; width: 32px; text-align: center; }
+  .vehicle-row .meta { flex: 1; }
+  .vehicle-row .meta .t1 { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .vehicle-row .meta .t2 { font-size: 11px; color: var(--ink-soft); font-family: "Courier New", monospace; }
+
+  /* ---------- EMERGENCIA screen ---------- */
+  .status-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--success-soft);
+    border: 1px solid #bfe7d5;
+    border-radius: 16px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .status-banner .ic { font-size: 24px; }
+  .status-banner .t1 { font-size: 13px; font-weight: 800; color: var(--success); }
+  .status-banner .t2 { font-size: 11px; color: #35624f; margin-top: 1px; }
+
+  .corridor-map {
+    background: linear-gradient(160deg, #16324f, #0e2338);
+    border-radius: 18px;
+    height: 190px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .corridor-map .road {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    top: 50%;
+    height: 5px;
+    background: repeating-linear-gradient(90deg, #4a6fa1 0 10px, transparent 10px 20px);
+    transform: translateY(-50%) rotate(-6deg);
+    border-radius: 3px;
+  }
+  .corridor-map .buffer {
+    position: absolute;
+    left: 6%;
+    right: 6%;
+    top: 50%;
+    height: 46px;
+    background: rgba(217,45,32,0.16);
+    border: 1px dashed rgba(217,45,32,0.55);
+    transform: translateY(-50%) rotate(-6deg);
+    border-radius: 30px;
+  }
+  .corridor-map .amb {
+    position: absolute;
+    left: 20%;
+    top: 41%;
+    font-size: 22px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+  }
+  .corridor-map .veh {
+    position: absolute;
+    font-size: 17px;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));
+  }
+  .corridor-map .veh.car { left: 52%; top: 33%; }
+  .corridor-map .veh.moto { left: 68%; top: 58%; }
+  .corridor-map .tag {
+    position: absolute;
+    font-size: 8.5px;
+    font-weight: 700;
+    color: #cfe0f5;
+    background: rgba(13,25,38,0.7);
+    padding: 1px 5px;
+    border-radius: 6px;
+  }
+  .corridor-map .tag.car { left: 49%; top: 20%; }
+  .corridor-map .tag.moto { left: 63%; top: 70%; }
+
+  .alert-card {
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 10px;
+    border: 1px solid;
+    display: flex;
+    gap: 12px;
+  }
+  .alert-card .ic { font-size: 22px; flex-shrink: 0; }
+  .alert-card .body { flex: 1; }
+  .alert-card .msg { font-size: 12.5px; font-weight: 600; color: var(--ink); line-height: 1.4; margin-bottom: 6px; }
+  .alert-card .foot { display: flex; justify-content: space-between; align-items: center; }
+  .alert-card .dist { font-size: 11px; color: var(--ink-soft); font-weight: 600; }
+  .alert-card.visual { background: var(--brand-soft); border-color: #cfe0fb; }
+  .alert-card.voice { background: var(--moto-soft); border-color: #e0d1fc; }
+
+  .toggle-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .toggle-btn {
+    flex: 1;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 8px 6px;
+    border-radius: 10px;
+    border: 1.5px solid var(--line);
+    background: #fff;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .toggle-btn.active.car-mode { border-color: var(--brand); color: var(--brand-dark); background: var(--brand-soft); }
+  .toggle-btn.active.moto-mode { border-color: var(--moto); color: var(--moto); background: var(--moto-soft); }
+
+  /* ---------- RECORDATORIOS screen ---------- */
+  .reminder-card {
+    display: flex;
+    gap: 12px;
+    padding: 13px 14px;
+    margin-bottom: 10px;
+  }
+  .reminder-card .pin {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: var(--brand-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .reminder-card.done .pin { background: var(--success-soft); }
+  .reminder-card .meta { flex: 1; min-width: 0; }
+  .reminder-card .addr { font-size: 12px; font-weight: 700; color: var(--ink); }
+  .reminder-card .msg { font-size: 12px; color: var(--ink-soft); margin: 2px 0 6px; }
+  .reminder-card .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .reminder-card .tag {
+    font-size: 9.5px; font-weight: 700;
+    background: #eef1f5; color: #66727d;
+    padding: 2px 7px; border-radius: 999px;
+  }
+
+  .new-reminder-btn {
+    width: 100%;
+    padding: 13px;
+    border-radius: 14px;
+    border: 1.5px dashed #c3d2e3;
+    background: #fbfdff;
+    color: var(--brand-dark);
+    font-weight: 700;
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+
+  /* ---------- NOTIFICACIONES screen ---------- */
+  .notif-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 4px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-item .ic-wrap {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .notif-item.emergency .ic-wrap { background: var(--emergency-soft); }
+  .notif-item.reminder .ic-wrap { background: var(--brand-soft); }
+  .notif-item.system .ic-wrap { background: #f1f3f6; }
+  .notif-item .body { flex: 1; min-width: 0; }
+  .notif-item .title { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+  .notif-item .desc { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; line-height: 1.4; }
+  .notif-item .time { font-size: 10px; color: #9aa8b4; margin-top: 4px; }
+  .notif-item .unread-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--brand);
+    position: absolute; top: 14px; right: 2px;
+  }
+  .notif-day-label {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    color: #9aa8b4; letter-spacing: 0.06em;
+    margin: 16px 0 4px;
+  }
+  .notif-day-label:first-child { margin-top: 4px; }
+
+  /* ---------- side legend ---------- */
+  .legend {
+    width: 300px;
+    color: #dbe4ee;
+    font-size: 13px;
+  }
+  .legend h2 {
+    font-size: 15px;
+    color: #fff;
+    margin: 0 0 12px;
+  }
+  .legend .item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .legend .item:last-child { border-bottom: none; }
+  .legend .item .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    margin-top: 5px; flex-shrink: 0;
+  }
+  .legend .item .txt b { color: #fff; display: block; font-size: 12.5px; margin-bottom: 2px; }
+  .legend .item .txt span { font-size: 11.5px; color: #a9b8c7; line-height: 1.4; }
+  .legend .badge-note {
+    margin-top: 18px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #b7c4d1;
+  }
+
+  @media (max-width: 720px) {
+    .layout { flex-direction: column; align-items: center; }
+    .legend { width: 340px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="page-header">
+    <div class="eyebrow">CoPiloto · Puntos Movilidad</div>
+    <h1>Vista previa de lo construido</h1>
+    <p>Así se vería en el celular lo que ya está funcionando en el backend: Modo de manejo, el Corredor de Emergencia (ambulancia), Recordatorios por ubicación y ahora Notificaciones. Usa los botones de abajo del teléfono para cambiar de pantalla.</p>
+  </div>
+
+  <div class="layout">
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar">
+          <span>9:41</span>
+          <span>🔋 100%</span>
+        </div>
+
+        <div class="screen-content" id="screen-content"></div>
+
+        <div class="tabbar">
+          <button class="tab active" data-tab="modo" onclick="showTab('modo')">
+            <span class="icon">🚗</span>Modo
+          </button>
+          <button class="tab" data-tab="emergencia" onclick="showTab('emergencia')">
+            <span class="icon">🚑</span>Emergencia
+          </button>
+          <button class="tab" data-tab="recordatorios" onclick="showTab('recordatorios')">
+            <span class="icon">📍</span>Recordatorios
+          </button>
+          <button class="tab" data-tab="notifs" onclick="showTab('notifs')">
+            <span class="icon">🔔</span>Alertas
+            <span class="dot"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <h2>Qué representa cada pantalla</h2>
+      <div class="item">
+        <div class="dot" style="background:var(--brand)"></div>
+        <div class="txt"><b>Modo de manejo</b><span>El usuario elige carro o moto (o el asistente se lo pregunta). Solo puede activar un modo si ya registró ese vehículo con su placa.</span></div>
+      </div>
+      <div class="item">
+        <div class="dot" style="background:var(--emergency)"></div>
+        <div class="txt"><b>Corredor de Emergencia</b><span>Vista del conductor de ambulancia verificado: candidatos cerca de la ruta, y el aviso que le llega a cada uno según su Modo de manejo — pantalla+sonido para carro, voz prioritaria para moto.</span></div>
+      </div>
+      <div class="item">
+        <div class="dot" style="background:var(--moto)"></div>
+        <div class="txt"><b>Recordatorios por ubicación</b><span>"Avísame cuando pase por Belén de comprar los panes" — se dispara solo al acercarse al lugar, sin que el usuario tenga que estar mirando el mapa.</span></div>
+      </div>
+      <div class="item">
+        <div class="dot" style="background:var(--success)"></div>
+        <div class="txt"><b>Notificaciones (nueva)</b><span>Bandeja central donde caen los avisos de ambulancia, los recordatorios que se dispararon, y cambios de estado como registrar una placa o cambiar de modo.</span></div>
+      </div>
+      <div class="badge-note">
+        Esto es una maqueta visual para que veas cómo se sentiría — el backend real detrás de cada pantalla ya está construido y probado (ver los ADRs del repositorio). Falta construir la app móvil que consuma estos datos.
+      </div>
+    </div>
+  </div>
+
+<script>
+const screens = {
+  modo: `
+    <div class="screen-title">Modo de manejo</div>
+    <div class="screen-subtitle">¿En qué andas hoy? El asistente también te lo puede preguntar por voz.</div>
+
+    <div class="mode-grid">
+      <div class="mode-card selected">
+        <span class="emoji">🚗</span>
+        <div class="label">Carro</div>
+        <div class="plate">ABC-123</div>
+      </div>
+      <div class="mode-card">
+        <span class="emoji">🏍️</span>
+        <div class="label">Moto</div>
+        <div class="plate">XYZ-987</div>
+      </div>
+    </div>
+
+    <div class="assistant-bubble">
+      <div class="avatar">✦</div>
+      <p><span class="quote">"Jheison, ¿vas en el carro o en la moto?"</span><br>El asistente puede preguntarlo por voz si no lo has elegido en el día.</p>
+    </div>
+
+    <div class="section-label">Mis vehículos registrados</div>
+    <div class="card">
+      <div class="vehicle-row">
+        <div class="ic">🚗</div>
+        <div class="meta">
+          <div class="t1">Carro</div>
+          <div class="t2">Placa ABC-123</div>
+        </div>
+        <span class="pill brand">Activo</span>
+      </div>
+      <div class="vehicle-row">
+        <div class="ic">🏍️</div>
+        <div class="meta">
+          <div class="t1">Moto</div>
+          <div class="t2">Placa XYZ-987</div>
+        </div>
+      </div>
+    </div>
+  `,
+
+  emergencia: `
+    <div class="screen-title">Corredor de Emergencia</div>
+    <div class="screen-subtitle">Vista del conductor de ambulancia verificado.</div>
+
+    <div class="status-banner">
+      <div class="ic">✅</div>
+      <div>
+        <div class="t1">Ambulancia verificada y activa</div>
+        <div class="t2">Cruz Roja Medellín · Placa AMB-045</div>
+      </div>
+    </div>
+
+    <div class="corridor-map">
+      <div class="road"></div>
+      <div class="buffer"></div>
+      <div class="amb">🚑</div>
+      <div class="tag car">Carro · 50m</div>
+      <div class="veh car">🚗</div>
+      <div class="tag moto">Moto · 80m</div>
+      <div class="veh moto">🏍️</div>
+    </div>
+
+    <div class="section-label">Así le llega el aviso a cada candidato</div>
+
+    <div class="alert-card visual">
+      <div class="ic">📳</div>
+      <div class="body">
+        <div class="msg">"Ambulancia aproximándose. Facilite el paso cuando sea seguro hacerlo."</div>
+        <div class="foot">
+          <span class="dist">A 50m · conductor en carro</span>
+          <span class="pill brand">Visual + sonido</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert-card voice">
+      <div class="ic">🔊</div>
+      <div class="body">
+        <div class="msg">"Ambulancia aproximándose. Facilite el paso cuando sea seguro hacerlo."</div>
+        <div class="foot">
+          <span class="dist">A 80m · conductor en moto</span>
+          <span class="pill moto">Voz prioritaria</span>
+        </div>
+      </div>
+    </div>
+  `,
+
+  recordatorios: `
+    <div class="screen-title">Recordatorios</div>
+    <div class="screen-subtitle">Se disparan solos cuando te acercas al lugar.</div>
+
+    <div class="card reminder-card">
+      <div class="pin">📍</div>
+      <div class="meta">
+        <div class="addr">Belén, Medellín</div>
+        <div class="msg">Comprar los panes</div>
+        <div class="tags">
+          <span class="tag">Radio 300m</span>
+          <span class="tag" style="background:var(--amber-soft); color:var(--amber)">Pendiente</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card reminder-card done">
+      <div class="pin">✅</div>
+      <div class="meta">
+        <div class="addr">Hospital San Vicente</div>
+        <div class="msg">Preguntar por los resultados</div>
+        <div class="tags">
+          <span class="tag">Radio 300m</span>
+          <span class="tag" style="background:var(--success-soft); color:var(--success)">Ya se disparó</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card reminder-card">
+      <div class="pin">📍</div>
+      <div class="meta">
+        <div class="addr">El Poblado</div>
+        <div class="msg">Recoger el paquete de la oficina</div>
+        <div class="tags">
+          <span class="tag">Radio 500m</span>
+          <span class="tag" style="background:var(--amber-soft); color:var(--amber)">Pendiente</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="new-reminder-btn">+ Nuevo recordatorio</button>
+  `,
+
+  notifs: `
+    <div class="screen-title">Notificaciones</div>
+    <div class="screen-subtitle">Todo lo que te avisó la app, en un solo lugar.</div>
+
+    <div class="notif-day-label">Hoy</div>
+    <div class="card" style="padding:2px 12px;">
+      <div class="notif-item emergency">
+        <div class="ic-wrap">🚑</div>
+        <div class="body">
+          <div class="title">Ambulancia aproximándose</div>
+          <div class="desc">Facilita el paso cuando sea seguro hacerlo · a 50m</div>
+          <div class="time">Hace 4 min</div>
+        </div>
+        <div class="unread-dot"></div>
+      </div>
+      <div class="notif-item reminder">
+        <div class="ic-wrap">📍</div>
+        <div class="body">
+          <div class="title">Recordatorio: Belén</div>
+          <div class="desc">"Comprar los panes" — ya pasaste por la zona</div>
+          <div class="time">Hace 22 min</div>
+        </div>
+        <div class="unread-dot"></div>
+      </div>
+      <div class="notif-item system">
+        <div class="ic-wrap">🚗</div>
+        <div class="body">
+          <div class="title">Modo de manejo actualizado</div>
+          <div class="desc">Cambiaste a "Carro" (placa ABC-123)</div>
+          <div class="time">Hace 1 h</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notif-day-label">Ayer</div>
+    <div class="card" style="padding:2px 12px;">
+      <div class="notif-item system">
+        <div class="ic-wrap">🏍️</div>
+        <div class="body">
+          <div class="title">Moto registrada</div>
+          <div class="desc">Placa XYZ-987 agregada a tus vehículos</div>
+          <div class="time">Ayer, 6:10 p.m.</div>
+        </div>
+      </div>
+      <div class="notif-item reminder">
+        <div class="ic-wrap">📍</div>
+        <div class="body">
+          <div class="title">Recordatorio: Hospital San Vicente</div>
+          <div class="desc">"Preguntar por los resultados" — cumplido</div>
+          <div class="time">Ayer, 3:45 p.m.</div>
+        </div>
+      </div>
+    </div>
+  `
+};
+
+function showTab(name) {
+  document.getElementById('screen-content').innerHTML = screens[name];
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.getElementById('screen-content').scrollTop = 0;
+}
+showTab('modo');
+</script>
+</body>
+</html>
