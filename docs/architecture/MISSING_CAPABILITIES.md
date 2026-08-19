@@ -100,9 +100,18 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 - **Actualizado 2026-08-18:** primera porción construida — tabla
   `emergency_vehicles` (autorización de ambulancias verificadas, RLS sin
   autoservicio) y helper `is_verified_ambulance_driver()`. Ver
-  `docs/decisions/ADR-0006-emergency-corridor.md`. El resto del dominio Emergency
-  (corredor dinámico, Conflict Engine, Alert Policy, tracking GPS) sigue en 0% —
-  depende de Location & Navigation (Fase 2 del cronograma), cuyo primer slice (motor de ubicación) ya existe — ver ADR-0009.
+  `docs/decisions/ADR-0006-emergency-corridor.md`.
+- **Actualizado 2026-08-19:** primer slice real del Conflict Engine —
+  `EmergencyCorridorService.findCandidates()`: el corredor es la ruta activa
+  de la ambulancia (reusa `RouteSessionService`), índice geoespacial en Redis
+  (`LocationStateService.findNearby`, `GEOSEARCH`) para encontrar candidatos
+  dentro de un buffer fijo de 200m muestreando hacia adelante sobre la ruta.
+  `GET /emergency/corridor/candidates`, solo para ambulancias
+  verificadas+activas. Ver `docs/decisions/ADR-0012-emergency-corridor-candidates.md`.
+  Verificado con 7/7 casos reales (Redis GEO real + polyline real de Google).
+  Todavía en 0%: buffer dinámico por velocidad, estados `ACTIVE_CONFLICT`/
+  `PASSED`, Alert Policy (notificaciones, dedup, cooldown, voz para motos),
+  tracking histórico GPS.
 - `MobilityEvent`, `HeavyVehicleEvent`, `TrafficObservation`, `TrafficRisk`.
 - Abstracciones `SignalProvider` / `PriorityDecisionEngine` (semáforos) — ni siquiera
   el `SimulationSignalProvider` inicial existe.

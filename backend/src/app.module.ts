@@ -10,6 +10,7 @@ import { EmergencyModule } from "./modules/emergency/emergency.module";
 import { SystemQueueModule } from "./modules/system/system-queue.module";
 import { LocationModule } from "./modules/location/location.module";
 import { NavigationModule } from "./modules/navigation/navigation.module";
+import { EmergencyCorridorModule } from "./modules/emergency-corridor/emergency-corridor.module";
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { NavigationModule } from "./modules/navigation/navigation.module";
     SystemQueueModule,
     LocationModule,
     NavigationModule,
+    EmergencyCorridorModule,
   ],
   controllers: [HealthController],
 })
