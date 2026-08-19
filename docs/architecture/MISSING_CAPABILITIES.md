@@ -109,9 +109,17 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   `GET /emergency/corridor/candidates`, solo para ambulancias
   verificadas+activas. Ver `docs/decisions/ADR-0012-emergency-corridor-candidates.md`.
   Verificado con 7/7 casos reales (Redis GEO real + polyline real de Google).
+  **Actualizado 2026-08-19 (2):** Alert Policy real — dedup + cooldown
+  atómico en Redis (`AlertPolicyService`, `SET NX EX` 30s) y entrega por el
+  mismo WebSocket de `/location` (`LocationBroadcastService`, cada socket se
+  une a una room por `userId`). Mensaje base único para todos los candidatos
+  (diferenciar carro/moto queda pendiente — no hay dato de tipo de vehículo
+  todavía). Ver `docs/decisions/ADR-0013-alert-policy.md`. Verificado con
+  Redis real (5/5 casos) y con un servidor+cliente Socket.IO reales (3/3
+  casos, entrega real por WebSocket confirmada).
   Todavía en 0%: buffer dinámico por velocidad, estados `ACTIVE_CONFLICT`/
-  `PASSED`, Alert Policy (notificaciones, dedup, cooldown, voz para motos),
-  tracking histórico GPS.
+  `PASSED`, diferenciación carro/moto (bloqueada por falta de dato de tipo de
+  vehículo — ver "Producto / Decisiones abiertas"), tracking histórico GPS.
 - `MobilityEvent`, `HeavyVehicleEvent`, `TrafficObservation`, `TrafficRisk`.
 - Abstracciones `SignalProvider` / `PriorityDecisionEngine` (semáforos) — ni siquiera
   el `SimulationSignalProvider` inicial existe.
@@ -135,6 +143,21 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 
 - Proveedor de SMS/OTP sin decidir (Twilio/MessageBird/Vonage).
 - Decisión de patentar/proteger la plataforma, marcada como prioridad, sin resolver.
+- **Agregado 2026-08-19 (ver ADR-0013):** permisos de ubicación de la futura
+  app cliente. Para que Emergency Corridor funcione de verdad (que una
+  ambulancia detecte candidatos reales, no una lista vacía), la app necesita
+  pedir permiso de ubicación (mínimo "mientras se usa la app") y reportar
+  posición de forma continua por el WebSocket de `/location` mientras está
+  abierta — no solo durante navegación activa, también mientras el usuario
+  está en mensajería, dejando un recordatorio, o hablando con el asistente.
+  El backend ya lo soporta sin cambios (`location:update` no depende de
+  tener una ruta activa); falta la decisión de producto de qué tipo de
+  permiso pedir y cuándo, y la implementación del lado del cliente (todavía
+  sin construir).
+- **Agregado 2026-08-19:** tipo de vehículo del usuario (carro/moto/otro) —
+  no se captura en ningún punto del sistema todavía. Bloquea diferenciar el
+  Alert Policy de Emergency Corridor (visual+audio para carro, voz
+  prioritaria para moto, de la visión completa del fundador).
 
 **Actualizado 2026-08-18 (tarde):** el proyecto Supabase "Copiloto" ya existe
 (`wrkuusacwkdazfwynhkz`, región `ca-central-1`, `ACTIVE_HEALTHY`, creado 2026-08-16).

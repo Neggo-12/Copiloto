@@ -1,11 +1,20 @@
 import { Inject, Logger, UnauthorizedException } from "@nestjs/common";
-import { ConnectedSocket, MessageBody, OnGatewayConnection, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
-import type { Socket } from "socket.io";
+import {
+  ConnectedSocket,
+  MessageBody,
+  OnGatewayConnection,
+  OnGatewayInit,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+} from "@nestjs/websockets";
+import type { Server, Socket } from "socket.io";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
 import { decodePolyline } from "../../common/geo/polyline";
 import { RouteSessionService } from "../route-session/route-session.service";
 import { computeDeviation } from "../route-session/route-deviation";
+import { LocationBroadcastService } from "./location-broadcast.service";
 import { LocationStateService } from "./location-state.service";
 import { normalizeReport, validateRawReport } from "./location-normalizer";
 import type { RawLocationReport } from "./location.types";
@@ -29,14 +38,23 @@ interface AuthenticatedSocket extends Socket {
  * sesión pegajosa.
  */
 @WebSocketGateway({ namespace: "location", cors: { origin: "*" } })
-export class LocationGateway implements OnGatewayConnection {
+export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
   private readonly logger = new Logger(LocationGateway.name);
+
+  @WebSocketServer()
+  private server!: Server;
 
   constructor(
     @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
     private readonly locationState: LocationStateService,
     private readonly routeSession: RouteSessionService,
+    private readonly broadcast: LocationBroadcastService,
   ) {}
+
+  /** Registra la instancia real de Socket.IO en `LocationBroadcastService` — así `AlertPolicyService` (otro módulo) puede mandar eventos sin depender de este gateway directamente. */
+  afterInit(server: Server): void {
+    this.broadcast.registerServer(server);
+  }
 
   async handleConnection(client: Socket): Promise<void> {
     const token = client.handshake.auth.token as string | undefined;
@@ -56,6 +74,9 @@ export class LocationGateway implements OnGatewayConnection {
     }
 
     (client as AuthenticatedSocket).data = { userId: data.user.id };
+    // Room propia por userId — permite mandarle eventos server-initiated
+    // (alertas de corredor) sin que quien los dispare conozca el socket id.
+    await client.join(data.user.id);
   }
 
   @SubscribeMessage("location:update")
