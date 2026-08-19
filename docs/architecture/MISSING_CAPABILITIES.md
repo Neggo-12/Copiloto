@@ -55,9 +55,16 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
 
 ## Location / Maps / Navigation
 
-- Permisos y sesión de ubicación foreground.
+- **Actualizado 2026-08-19:** primer slice construido — `LocationGateway`
+  (WebSocket, namespace `/location`, auth Supabase JWT), validación no ingenua
+  (`location-normalizer.ts`: rango/precisión/velocidad, desfase de reloj,
+  detección de salto implausible vía Haversine), estado caliente en Redis
+  (`LocationStateService`, TTL 300s, ventana stale 30s) y `GET /location/me`.
+  Ver `docs/decisions/ADR-0009-location-engine.md`. Persistencia histórica en
+  PostGIS deliberadamente NO construida todavía (sin consumidor real). Pendiente:
+- Permisos y sesión de ubicación foreground (lado cliente/app).
 - Adapters `RoutingProvider`, `GeocodingProvider`, `PlacesProvider`,
-  `NavigationProvider` sobre Google Maps Platform.
+  `NavigationProvider` sobre Google Maps Platform (requiere API key del fundador).
 - Recordatorios por ubicación (geofencing + trigger).
 - Recordatorios por tiempo (jobs con BullMQ).
 
@@ -68,7 +75,7 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   autoservicio) y helper `is_verified_ambulance_driver()`. Ver
   `docs/decisions/ADR-0006-emergency-corridor.md`. El resto del dominio Emergency
   (corredor dinámico, Conflict Engine, Alert Policy, tracking GPS) sigue en 0% —
-  depende de Location & Navigation (Fase 2 del cronograma), que todavía no existe.
+  depende de Location & Navigation (Fase 2 del cronograma), cuyo primer slice (motor de ubicación) ya existe — ver ADR-0009.
 - `MobilityEvent`, `HeavyVehicleEvent`, `TrafficObservation`, `TrafficRisk`.
 - Abstracciones `SignalProvider` / `PriorityDecisionEngine` (semáforos) — ni siquiera
   el `SimulationSignalProvider` inicial existe.

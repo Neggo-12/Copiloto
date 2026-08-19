@@ -7,6 +7,7 @@ import { QueueModule } from "./common/queue/queue.module";
 import { HealthController } from "./modules/health/health.controller";
 import { EmergencyModule } from "./modules/emergency/emergency.module";
 import { SystemQueueModule } from "./modules/system/system-queue.module";
+import { LocationModule } from "./modules/location/location.module";
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SystemQueueModule } from "./modules/system/system-queue.module";
     QueueModule,
     EmergencyModule,
     SystemQueueModule,
+    LocationModule,
   ],
   controllers: [HealthController],
 })
