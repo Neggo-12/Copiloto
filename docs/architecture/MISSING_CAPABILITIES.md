@@ -178,10 +178,35 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   de entrega es lo que se diferencia, no la redacción). Ver
   `docs/decisions/ADR-0017-alert-channel-differentiation.md`. Verificado
   con Redis real, 6/6 casos.
-  Todavía en 0%: buffer dinámico por velocidad, estados `ACTIVE_CONFLICT`/
-  `PASSED`, severidad `INFO`/`WARNING`/`CRITICAL`, cierre de corredor
-  (`completed`/`cancelled`/`expired`), tracking histórico GPS — diferido a
-  propósito, sin evidencia de necesidad todavía.
+  **Actualizado 2026-08-19 (4, cierre de corredor):** `POST
+  /emergency/corridor/close` (`{reason: "completed"|"cancelled"}`) — cierra
+  la ruta activa de la ambulancia (`RouteSessionService.clear`) y avisa
+  `corridor:closed` a todos los candidatos alertados durante el traslado,
+  usando un set nuevo en Redis (`corridor:alerted:{ambulanceDriverId}`,
+  TTL espejo de la sesión de ruta) que `AlertPolicyService` llena en cada
+  alerta y limpia al cerrar. `expired` no tiene código propio — el TTL de la
+  ruta y del set de alertados vencen solos si nadie cierra a mano; sin job
+  de barrido todavía (sin evidencia de que la espera silenciosa de 4h sea un
+  problema real). Ver `docs/decisions/ADR-0020-emergency-corridor-closure.md`.
+  Verificado con Redis real, 11/11 casos (incluye doble cierre sin error).
+  **Actualizado 2026-08-19 (5, buffer dinámico + severidad):** el radio fijo
+  de 200m se reemplazó por `buffer = clamp(150 + velocidad_mps × 8, 150,
+  400)` metros, usando la velocidad real reportada por la ambulancia
+  (`location.speed`). Cada candidato ahora trae `severity`
+  (`info`/`warning`/`critical`), calculada como fracción del buffer del
+  momento (25%/60%), no de una distancia fija — conectada también al evento
+  `corridor:alert` y a la pantalla de Emergencia del frontend (insignia de
+  color). Números elegidos por decisión delegada explícitamente por el
+  fundador ("la decisión se la dejo a usted"), documentados como ajustables
+  con evidencia real, no definitivos. Ver
+  `docs/decisions/ADR-0021-corridor-dynamic-buffer-severity.md`. Verificado
+  con Redis real + fixture de ruta real (mismo decodificador de producción),
+  16/16 casos — incluye el caso de velocidad de GPS con ruido (200 m/s)
+  confirmando que el buffer no crece sin límite.
+  Todavía en 0%: estados `ACTIVE_CONFLICT`/`PASSED` (necesitan
+  trayectoria/velocidad relativa del candidato, dato inexistente todavía),
+  tracking histórico GPS, job de barrido para expiración silenciosa —
+  diferido a propósito, sin evidencia de necesidad todavía.
 
 **Actualizado 2026-08-19 (registro de vehículos y modo de manejo):** tabla
 `user_vehicles` (Postgres, autoservicio, RLS `user_id = auth.uid()`, a lo

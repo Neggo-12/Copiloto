@@ -18,10 +18,13 @@ export interface ReminderTriggerEvent {
 }
 
 export type AlertChannel = "visual_audio" | "voice_priority" | "default";
+/** Espejo de `CorridorSeverity` en el backend (ADR-0021) — relativo al buffer dinámico del momento, no a un valor fijo de metros. */
+export type CorridorSeverity = "info" | "warning" | "critical";
 
 export interface CorridorAlertEvent {
   message: string;
   distanceMeters: number;
+  severity: CorridorSeverity;
   ambulanceDriverId: string;
   recommendedChannel: AlertChannel;
   receivedAt: string;
@@ -31,6 +34,7 @@ interface CorridorCandidate {
   userId: string;
   distanceMeters: number;
   state: "potential_conflict";
+  severity: CorridorSeverity;
 }
 
 interface CorridorCandidatesResponse {
@@ -116,6 +120,7 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
         (payload: {
           message: string;
           distanceMeters: number;
+          severity: CorridorSeverity;
           ambulanceDriverId: string;
           recommendedChannel: AlertChannel;
         }) => {

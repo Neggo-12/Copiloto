@@ -4,7 +4,7 @@ import { REDIS_CONNECTION } from "../../common/redis/redis.module";
 import { DrivingModeService } from "../vehicles/driving-mode.service";
 import type { VehicleType } from "../vehicles/vehicles.types";
 import { LocationBroadcastService } from "../location/location-broadcast.service";
-import type { CorridorCandidate } from "./emergency-corridor.types";
+import type { CorridorCandidate, CorridorCloseReason } from "./emergency-corridor.types";
 
 /**
  * Mensaje base (definido por el fundador desde la visión completa del
@@ -41,8 +41,23 @@ function recommendedChannelFor(vehicleType: VehicleType | null): AlertChannel {
  */
 const ALERT_COOLDOWN_SECONDS = 30;
 
+/**
+ * Cuánto vive el set de "a quién se alertó durante este traslado" (ver
+ * `alertedSetKey`) si nadie cierra el corredor a mano. Se fija igual al TTL
+ * de `RouteSessionService.SESSION_TTL_SECONDS` (4h) a propósito: el set no
+ * tiene sentido sobrevivir más que la ruta que lo originó. No se importa la
+ * constante entre módulos (evitar un acoplamiento innecesario por un solo
+ * número) — si alguna cambia, ambas se revisan juntas.
+ */
+const ALERTED_SET_TTL_SECONDS = 4 * 60 * 60;
+
 function alertStateKey(ambulanceDriverId: string, candidateUserId: string): string {
   return `corridor:alert:${ambulanceDriverId}:${candidateUserId}`;
+}
+
+/** Quiénes fueron alertados durante el traslado ACTIVO de esta ambulancia — distinto del cooldown por par (`alertStateKey`), que solo evita spam repetido. Este set es lo que permite avisarles "ya pasó" al cerrar el corredor. */
+function alertedSetKey(ambulanceDriverId: string): string {
+  return `corridor:alerted:${ambulanceDriverId}`;
 }
 
 export interface AlertDispatchResult {
@@ -86,10 +101,15 @@ export class AlertPolicyService {
       this.broadcast.notify(candidate.userId, "corridor:alert", {
         message: BASE_ALERT_MESSAGE,
         distanceMeters: candidate.distanceMeters,
+        severity: candidate.severity,
         ambulanceDriverId,
         recommendedChannel,
       });
       alerted.push(candidate.userId);
+
+      const setKey = alertedSetKey(ambulanceDriverId);
+      await this.redis.sadd(setKey, candidate.userId);
+      await this.redis.expire(setKey, ALERTED_SET_TTL_SECONDS);
     }
 
     if (alerted.length > 0) {
@@ -97,5 +117,27 @@ export class AlertPolicyService {
     }
 
     return { alerted, skippedByCooldown };
+  }
+
+  /**
+   * Cierra el corredor de esta ambulancia: le avisa `corridor:closed` a
+   * TODOS los candidatos alertados durante el traslado (no solo el último
+   * lote) y limpia el set — un corredor cerrado no debe dejar rastro de
+   * "alertado pendiente de resolver". No toca los cooldowns por par
+   * (`alertStateKey`) — esos ya expiran solos en 30s y no bloquean nada.
+   */
+  async closeCorridor(ambulanceDriverId: string, reason: CorridorCloseReason): Promise<string[]> {
+    const setKey = alertedSetKey(ambulanceDriverId);
+    const notified = await this.redis.smembers(setKey);
+
+    if (notified.length > 0) {
+      await this.redis.del(setKey);
+      for (const userId of notified) {
+        this.broadcast.notify(userId, "corridor:closed", { ambulanceDriverId, reason });
+      }
+      this.logger.log(`Ambulancia ${ambulanceDriverId}: corredor cerrado (${reason}), ${notified.length} candidato(s) notificado(s)`);
+    }
+
+    return notified;
   }
 }

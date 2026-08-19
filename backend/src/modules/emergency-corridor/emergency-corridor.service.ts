@@ -4,15 +4,47 @@ import { decodePolyline } from "../../common/geo/polyline";
 import type { LatLng } from "../../common/geo/types";
 import { LocationStateService } from "../location/location-state.service";
 import { RouteSessionService } from "../route-session/route-session.service";
-import type { CorridorCandidate } from "./emergency-corridor.types";
+import type { CorridorCandidate, CorridorSeverity } from "./emergency-corridor.types";
 
 /**
- * Radio del buffer alrededor del corredor. Fijo para este primer slice — el
- * buffer "dinámico" (más ancho a mayor velocidad de la ambulancia, de la
- * visión completa del fundador) queda para una siguiente rebanada, cuando
- * haya evidencia real de que el fijo se queda corto o sobra.
+ * Buffer dinámico por velocidad (ver ADR-0021): reemplaza el radio fijo de
+ * 200m del primer slice. Un radio fijo se queda corto cuando la ambulancia
+ * va rápido (menos tiempo real de reacción para el candidato) y sobra
+ * cuando va despacio o detenida (alerta a gente que no tiene nada que
+ * despejar todavía). El fundador delegó explícitamente los números de esta
+ * decisión ("la decisión se la dejo a usted, tome la mejor") — valores
+ * elegidos con una justificación concreta, no arbitraria, y documentados
+ * como ajustables con evidencia real de uso, no como definitivos.
  */
-const CORRIDOR_BUFFER_METERS = 200;
+const MIN_BUFFER_METERS = 150;
+const MAX_BUFFER_METERS = 400;
+/**
+ * Segundos de reacción que se le da a un candidato para detectar la alerta
+ * y despejar el paso — 8s es una cifra conservadora típica de "percibir +
+ * decidir + maniobrar" en tránsito urbano (más que el tiempo de reacción
+ * simple ante un evento visual, porque acá el candidato además tiene que
+ * mover el vehículo). A 80km/h (22.2 m/s), 8s de margen ya llenan el techo
+ * de 400m; a 20km/h o detenida, el mínimo de 150m es suficiente sin
+ * sobre-alertar innecesariamente.
+ */
+const REACTION_TIME_SECONDS = 8;
+
+function dynamicBufferMeters(speedMetersPerSecond: number | null): number {
+  if (speedMetersPerSecond === null || speedMetersPerSecond <= 0) return MIN_BUFFER_METERS;
+  const grown = MIN_BUFFER_METERS + speedMetersPerSecond * REACTION_TIME_SECONDS;
+  return Math.min(MAX_BUFFER_METERS, Math.round(grown));
+}
+
+/** Fracciones del buffer que separan `critical`/`warning`/`info` — ver el comentario de `CorridorSeverity`. */
+const CRITICAL_BUFFER_FRACTION = 0.25;
+const WARNING_BUFFER_FRACTION = 0.6;
+
+function severityFor(distanceMeters: number, bufferMeters: number): CorridorSeverity {
+  if (distanceMeters <= bufferMeters * CRITICAL_BUFFER_FRACTION) return "critical";
+  if (distanceMeters <= bufferMeters * WARNING_BUFFER_FRACTION) return "warning";
+  return "info";
+}
+
 /** Cada cuántos puntos decodificados del polyline se muestrea — evita una búsqueda geoespacial por cada uno de los ~100+ puntos de una ruta típica. */
 const SAMPLE_STRIDE = 5;
 /** Tope de muestras hacia adelante: cada muestra es una llamada real a Redis, así que se limita el costo por consulta. ~20 muestras cada ~100-250m cubren varios km de corredor por delante de la ambulancia — suficiente para un primer slice urbano. */
@@ -48,12 +80,14 @@ export class EmergencyCorridorService {
       ? { latitude: currentLocation.location.latitude, longitude: currentLocation.location.longitude }
       : activeRoute.origin;
 
+    const bufferMeters = dynamicBufferMeters(currentLocation?.location.speed ?? null);
+
     const routePoints = decodePolyline(activeRoute.encodedPolyline);
     const samples = this.sampleAhead(routePoints, currentPosition);
 
     const nearest = new Map<string, number>();
     for (const point of samples) {
-      const candidates = await this.locationState.findNearby(point, CORRIDOR_BUFFER_METERS);
+      const candidates = await this.locationState.findNearby(point, bufferMeters);
       for (const candidate of candidates) {
         if (candidate.userId === ambulanceDriverId) continue;
         const existing = nearest.get(candidate.userId);
@@ -67,6 +101,7 @@ export class EmergencyCorridorService {
       userId,
       distanceMeters: Math.round(distanceMeters),
       state: "potential_conflict" as const,
+      severity: severityFor(distanceMeters, bufferMeters),
     }));
   }
 

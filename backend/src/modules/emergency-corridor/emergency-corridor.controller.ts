@@ -1,9 +1,15 @@
-import { Controller, ForbiddenException, Get, UseGuards, Req } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Post, UseGuards, Req } from "@nestjs/common";
 import { SupabaseAuthGuard } from "../../common/guards/supabase-auth.guard";
 import type { AuthenticatedRequest } from "../../common/guards/supabase-auth.guard";
 import { EmergencyVehiclesService } from "../emergency/emergency-vehicles.service";
+import { RouteSessionService } from "../route-session/route-session.service";
 import { AlertPolicyService } from "./alert-policy.service";
 import { EmergencyCorridorService } from "./emergency-corridor.service";
+import type { CorridorCloseReason } from "./emergency-corridor.types";
+
+interface CloseCorridorBody {
+  reason?: CorridorCloseReason;
+}
 
 /**
  * Solo ambulancias verificadas Y activas pueden consultar candidatos — "qué
@@ -29,6 +35,7 @@ export class EmergencyCorridorController {
     private readonly vehicles: EmergencyVehiclesService,
     private readonly corridor: EmergencyCorridorService,
     private readonly alertPolicy: AlertPolicyService,
+    private readonly routeSession: RouteSessionService,
   ) {}
 
   @Get("candidates")
@@ -45,5 +52,27 @@ export class EmergencyCorridorController {
 
     const dispatch = await this.alertPolicy.evaluateAndDispatch(request.userId, found);
     return { hasActiveRoute: true, candidates: found, ...dispatch };
+  }
+
+  /**
+   * Cierra el corredor de la ambulancia: avisa "ya pasó" (`corridor:closed`)
+   * a todo el que fue alertado durante el traslado y libera la ruta activa
+   * (misma `RouteSessionService` que `DELETE /navigation/route-session`,
+   * reusada aquí para no duplicar el estado de "cuál es mi ruta ahora").
+   * `reason` por defecto `cancelled` si no se manda — más seguro asumir que
+   * no llegó a completarse que asumir lo contrario sin confirmación.
+   */
+  @Post("close")
+  async close(@Req() request: AuthenticatedRequest, @Body() body: CloseCorridorBody) {
+    const status = await this.vehicles.getStatusForDriver(request.userId);
+    if (!status?.verified || !status.active) {
+      throw new ForbiddenException("Solo conductores de ambulancia verificados y activos pueden cerrar un corredor.");
+    }
+
+    const reason: CorridorCloseReason = body?.reason === "completed" ? "completed" : "cancelled";
+    const notified = await this.alertPolicy.closeCorridor(request.userId, reason);
+    await this.routeSession.clear(request.userId);
+
+    return { closed: true, reason, notified };
   }
 }

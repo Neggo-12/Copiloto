@@ -3,12 +3,26 @@ import { PhoneScreen } from "@/components/shared/PhoneScreen";
 import { Badge } from "@/components/ui/badge";
 import { Ambulance, Car, Helmet, Wifi, WifiOff } from "@/components/shared/icons";
 import { formatClock } from "@/lib/format";
-import type { CopilotoRealtimeState } from "@/hooks/useCopilotoRealtime";
+import type { CopilotoRealtimeState, CorridorSeverity } from "@/hooks/useCopilotoRealtime";
 
 const CHANNEL_LABEL: Record<string, { label: string; icon: typeof Car }> = {
   visual_audio: { label: "Visual + sonido (carro)", icon: Car },
   voice_priority: { label: "Prioridad de voz (moto)", icon: Helmet },
   default: { label: "Aviso general", icon: Ambulance },
+};
+
+/** Espejo de la lógica de `severityFor` en el backend (ADR-0021) — relativa al buffer dinámico del momento, no a metros fijos. */
+const SEVERITY_LABEL: Record<
+  CorridorSeverity,
+  { label: string; badgeVariant: "destructive" | "secondary" | "outline"; className?: string }
+> = {
+  critical: { label: "Crítico", badgeVariant: "destructive" },
+  warning: {
+    label: "Atención",
+    badgeVariant: "secondary",
+    className: "text-amber-700 dark:text-amber-400",
+  },
+  info: { label: "Informativo", badgeVariant: "outline" },
 };
 
 /**
@@ -82,17 +96,25 @@ export function EmergenciaScreen({
                 Ruta activa, sin candidatos cerca por ahora.
               </p>
             )}
-            {ambulanceView.data?.candidates.map((candidate) => (
-              <div
-                key={candidate.userId}
-                className="flex items-center justify-between rounded-2xl border border-border bg-card px-3 py-2"
-              >
-                <span className="text-[13px] text-muted-foreground">
-                  Usuario {candidate.userId.slice(0, 8)}…
-                </span>
-                <Badge variant="outline">{candidate.distanceMeters}m</Badge>
-              </div>
-            ))}
+            {ambulanceView.data?.candidates.map((candidate) => {
+              const severity = SEVERITY_LABEL[candidate.severity];
+              return (
+                <div
+                  key={candidate.userId}
+                  className="flex items-center justify-between rounded-2xl border border-border bg-card px-3 py-2"
+                >
+                  <span className="text-[13px] text-muted-foreground">
+                    Usuario {candidate.userId.slice(0, 8)}…
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={severity.badgeVariant} className={severity.className}>
+                      {severity.label}
+                    </Badge>
+                    <Badge variant="outline">{candidate.distanceMeters}m</Badge>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -108,6 +130,7 @@ export function EmergenciaScreen({
             {alerts.map((alert, index) => {
               const channel = CHANNEL_LABEL[alert.recommendedChannel] ?? CHANNEL_LABEL["default"]!;
               const Icon = channel.icon;
+              const severity = SEVERITY_LABEL[alert.severity] ?? SEVERITY_LABEL.info;
               return (
                 <div
                   key={`${alert.ambulanceDriverId}-${alert.receivedAt}-${index}`}
@@ -117,7 +140,12 @@ export function EmergenciaScreen({
                     <Ambulance className="size-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[14px] font-medium">{alert.message}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[14px] font-medium">{alert.message}</p>
+                      <Badge variant={severity.badgeVariant} className={severity.className}>
+                        {severity.label}
+                      </Badge>
+                    </div>
                     <p className="text-[12px] text-muted-foreground">
                       A {alert.distanceMeters}m · {formatClock(alert.receivedAt)}
                     </p>
