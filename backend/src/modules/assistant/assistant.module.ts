@@ -1,0 +1,38 @@
+import { Module } from "@nestjs/common";
+import { EmergencyModule } from "../emergency/emergency.module";
+import { LocationModule } from "../location/location.module";
+import { LocationRemindersModule } from "../location-reminders/location-reminders.module";
+import { NavigationModule } from "../navigation/navigation.module";
+import { RouteSessionModule } from "../route-session/route-session.module";
+import { VehiclesModule } from "../vehicles/vehicles.module";
+import { AssistantController } from "./assistant.controller";
+import { AssistantToolsService } from "./assistant-tools.service";
+import { ActivateEmergencyCorridorTool } from "./tools/activate-emergency-corridor.tool";
+import { CalculateRouteTool } from "./tools/calculate-route.tool";
+import { CreateLocationReminderTool } from "./tools/create-location-reminder.tool";
+import { GetDrivingModeTool } from "./tools/get-driving-mode.tool";
+import { ListVehiclesTool } from "./tools/list-vehicles.tool";
+import { SetDrivingModeTool } from "./tools/set-driving-mode.tool";
+
+/**
+ * Módulo "hoja" a propósito: solo consume servicios/proveedores que ya
+ * exportan otros módulos (Navigation, Location, RouteSession, Emergency,
+ * Vehicles, LocationReminders) — ninguno de ellos importa `AssistantModule`
+ * de vuelta, así que no hay riesgo de ciclo (mismo cuidado que ya se tuvo
+ * al diseñar `LocationRemindersModule` para evitarlo con `NavigationModule`
+ * en ADR-0015).
+ */
+@Module({
+  imports: [NavigationModule, LocationModule, RouteSessionModule, EmergencyModule, VehiclesModule, LocationRemindersModule],
+  controllers: [AssistantController],
+  providers: [
+    AssistantToolsService,
+    CreateLocationReminderTool,
+    CalculateRouteTool,
+    ActivateEmergencyCorridorTool,
+    SetDrivingModeTool,
+    GetDrivingModeTool,
+    ListVehiclesTool,
+  ],
+})
+export class AssistantModule {}

@@ -13,6 +13,7 @@ import { NavigationModule } from "./modules/navigation/navigation.module";
 import { EmergencyCorridorModule } from "./modules/emergency-corridor/emergency-corridor.module";
 import { VehiclesModule } from "./modules/vehicles/vehicles.module";
 import { LocationRemindersModule } from "./modules/location-reminders/location-reminders.module";
+import { AssistantModule } from "./modules/assistant/assistant.module";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { LocationRemindersModule } from "./modules/location-reminders/location-r
     EmergencyCorridorModule,
     VehiclesModule,
     LocationRemindersModule,
+    AssistantModule,
   ],
   controllers: [HealthController],
 })

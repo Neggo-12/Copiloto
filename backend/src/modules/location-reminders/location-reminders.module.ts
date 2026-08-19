@@ -15,6 +15,6 @@ import { ReminderCacheService } from "./reminder-cache.service";
 @Module({
   controllers: [LocationRemindersController],
   providers: [LocationRemindersService, ReminderCacheService, GeofenceTriggerService],
-  exports: [GeofenceTriggerService],
+  exports: [GeofenceTriggerService, LocationRemindersService],
 })
 export class LocationRemindersModule {}

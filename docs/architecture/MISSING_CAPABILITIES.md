@@ -44,14 +44,42 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   y `src/lib/actions/auth.ts` ya habla con el backend real para OTP). El resto de
   dominios (chats, contactos, notas, estados) siguen 100% en mock-data en memoria.
 
-## Asistente de voz (visión documentada, cero implementación)
+## Asistente de voz
 
-- Modo conducción (UI/estado que active la sesión de voz).
-- Integración Realtime/STT (OpenAI Realtime u otro adapter).
-- Tool registry (`read_message`, `send_message`, `create_reminder`,
-  `create_location_reminder`, `calculate_route`, `activate_emergency`, etc.) — ninguna
-  tool existe como código; solo como lista en `PROMPT_MAESTRO_CLAUDE_CODE.md` §11.
-- Capa de autorización/política entre LLM y servicios de dominio.
+- **Actualizado 2026-08-19 (primer slice real):** Tool Registry + capa de
+  autorización/confirmación construidas — `AssistantModule`, 6 tools reales
+  (`create_location_reminder`, `calculate_route`,
+  `activate_emergency_corridor`, `set_driving_mode`, `get_driving_mode`,
+  `list_vehicles`), cada una llamando a servicios de dominio ya existentes
+  y ya verificados (ninguna toca Postgres/Redis/Google directo).
+  `activate_emergency_corridor` exige autorización real
+  (`EmergencyVehiclesService`, verificado+activo) y confirmación explícita
+  antes de ejecutar el efecto real (`needs_confirmation` → segunda llamada
+  con `confirmed: true`). `GET /assistant/tools`,
+  `POST /assistant/tools/:toolName/execute`. Ver
+  `docs/decisions/ADR-0016-assistant-tool-registry.md`. Verificado con un
+  arranque real del `AppModule` completo (grafo de DI de los 6 módulos que
+  consume, sin ciclos) y 17/17 casos de lógica de negocio (autorización,
+  gating de confirmación, validación) contra stubs honestos de Google
+  Maps/Postgres — esas piezas ya se verificaron reales por separado.
+- Modo conducción (UI/estado que active la sesión de voz) — estado de
+  cliente/app, no de este backend; sin evidencia todavía de necesitar
+  coordinación server-side.
+- Integración Realtime/STT (OpenAI Realtime u otro adapter) — requiere que
+  el fundador provisione cuenta/API key (mismo tipo de paso que Google Maps
+  Platform en ADR-0010). Cuando exista, se conecta al Tool Registry ya
+  construido: `GET /assistant/tools` como config de `tools` de la sesión,
+  cada function-call de OpenAI → `POST /assistant/tools/:toolName/execute`.
+- Tools de mensajería (`read_message`, `send_message`) — bloqueadas porque
+  el dominio de mensajería vive en `proyecto-mensajeria/` hablando con
+  Supabase directo, sin capa de aplicación NestJS que envolver todavía
+  (Fase 5, en paralelo, sin construir). Construirlas ahora habría
+  significado la IA hablando con Supabase directo (viola la regla de
+  seguridad del proyecto) o apurar un backend de mensajería solo para
+  esto — ninguna opción es honesta, queda como gap real documentado.
+- `create_reminder` (por tiempo, hora fija, BullMQ) — tipo de recordatorio
+  distinto a `create_location_reminder` (geofence, ya existe); sigue sin
+  construir, depende de jobs con BullMQ.
 
 ## Location / Maps / Navigation
 
