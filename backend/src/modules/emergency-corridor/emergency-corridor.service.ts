@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { haversineMeters } from "../../common/geo/haversine";
+import { pointAtDistanceAlongPath } from "../../common/geo/interpolate";
 import { decodePolyline } from "../../common/geo/polyline";
 import type { LatLng } from "../../common/geo/types";
 import { LocationStateService } from "../location/location-state.service";
@@ -29,7 +30,8 @@ const MAX_BUFFER_METERS = 400;
  */
 const REACTION_TIME_SECONDS = 8;
 
-function dynamicBufferMeters(speedMetersPerSecond: number | null): number {
+/** Exportada (no solo interna) para que `SimulationEngineService` pueda reportar el mismo número real usado en la detección, en vez de adivinarlo — ver ADR-0022. */
+export function dynamicBufferMeters(speedMetersPerSecond: number | null): number {
   if (speedMetersPerSecond === null || speedMetersPerSecond <= 0) return MIN_BUFFER_METERS;
   const grown = MIN_BUFFER_METERS + speedMetersPerSecond * REACTION_TIME_SECONDS;
   return Math.min(MAX_BUFFER_METERS, Math.round(grown));
@@ -45,9 +47,21 @@ function severityFor(distanceMeters: number, bufferMeters: number): CorridorSeve
   return "info";
 }
 
-/** Cada cuántos puntos decodificados del polyline se muestrea — evita una búsqueda geoespacial por cada uno de los ~100+ puntos de una ruta típica. */
-const SAMPLE_STRIDE = 5;
-/** Tope de muestras hacia adelante: cada muestra es una llamada real a Redis, así que se limita el costo por consulta. ~20 muestras cada ~100-250m cubren varios km de corredor por delante de la ambulancia — suficiente para un primer slice urbano. */
+/**
+ * Cada cuántos METROS reales (no puntos crudos del polyline) se toma una
+ * muestra hacia adelante. Antes se muestreaba cada N-ésimo punto del array
+ * decodificado — funcionaba con una polyline densa (curvas/calles reales de
+ * Google, muchos puntos), pero con pocos waypoints (ej. un tramo recto
+ * corto) el muestreo por índice dejaba huecos reales sin cubrir en el
+ * corredor: un candidato a mitad de ruta podía no aparecer NUNCA aunque
+ * estuviera dentro del buffer, porque solo se consultaban los waypoints
+ * originales, no puntos intermedios reales. Encontrado con el simulador
+ * (Fase 7, ver ADR-0022), corregido a muestreo por distancia real
+ * (`pointAtDistanceAlongPath`) — funciona igual sin importar cuántos
+ * waypoints traiga la polyline de entrada.
+ */
+const SAMPLE_DISTANCE_METERS = 100;
+/** Tope de muestras hacia adelante: cada muestra es una llamada real a Redis, así que se limita el costo por consulta. 20 muestras × 100m cubren 2km de corredor por delante de la ambulancia — suficiente para un primer slice urbano. */
 const MAX_LOOKAHEAD_SAMPLES = 20;
 
 /**
@@ -106,9 +120,12 @@ export class EmergencyCorridorService {
   }
 
   /**
-   * Encuentra el punto de la ruta más cercano a la posición actual (mismo
-   * cálculo que `route-deviation.ts`) y muestrea puntos desde ahí hacia
-   * adelante, con un tope de muestras.
+   * Encuentra el waypoint de la ruta más cercano a la posición actual (mismo
+   * cálculo que `route-deviation.ts`), convierte eso a una distancia
+   * acumulada desde el inicio de la ruta, y muestrea puntos desde ahí hacia
+   * adelante CADA `SAMPLE_DISTANCE_METERS` METROS REALES (no cada N-ésimo
+   * punto crudo — ver el comentario de `SAMPLE_DISTANCE_METERS`), con un
+   * tope de muestras.
    */
   private sampleAhead(routePoints: LatLng[], currentPosition: LatLng): LatLng[] {
     if (routePoints.length === 0) return [currentPosition];
@@ -123,10 +140,16 @@ export class EmergencyCorridorService {
       }
     });
 
-    const ahead = routePoints.slice(nearestIndex);
+    let cumulativeAtNearest = 0;
+    for (let i = 1; i <= nearestIndex; i++) {
+      cumulativeAtNearest += haversineMeters(routePoints[i - 1], routePoints[i]);
+    }
+
     const sampled: LatLng[] = [];
-    for (let i = 0; i < ahead.length && sampled.length < MAX_LOOKAHEAD_SAMPLES; i += SAMPLE_STRIDE) {
-      sampled.push(ahead[i]);
+    for (let i = 0; i < MAX_LOOKAHEAD_SAMPLES; i++) {
+      const point = pointAtDistanceAlongPath(routePoints, cumulativeAtNearest + i * SAMPLE_DISTANCE_METERS);
+      if (point === null) break;
+      sampled.push(point);
     }
     return sampled.length > 0 ? sampled : [currentPosition];
   }

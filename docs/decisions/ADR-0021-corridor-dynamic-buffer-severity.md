@@ -92,6 +92,22 @@ tocar `polyline.ts`, que a propósito solo tiene decode) — 16/16 casos:
 `typecheck`/`lint`/`build` limpios en backend y en `proyecto-mensajeria`
 (incluye build de producción completo del frontend).
 
+## Corrección posterior (ver ADR-0022)
+
+El fixture de verificación de este ADR colocaba candidatos EXACTAMENTE
+sobre la línea de la ruta (mismo eje que el origen-destino, solo variando
+"cuán adelante"). Eso coincidía, por accidente, con un bug real de
+muestreo que ADR-0022 encontró y corrigió (`sampleAhead` muestreaba por
+índice de punto crudo, no por distancia real — con una ruta de pocos
+waypoints, en la práctica solo consultaba el punto de origen). Con el
+muestreo corregido, un candidato sobre la línea de la ruta queda
+`critical` casi siempre sin importar cuán adelante esté (porque siempre
+hay una muestra justo al lado suyo) — el comportamiento CORRECTO de un
+corredor, no el de este ADR. La verificación de severidad válida ahora es
+la de ADR-0022 (candidatos desplazados LATERALMENTE de la ruta, no sobre
+ella) — la fórmula y los números de esta decisión (150/400/8s/25%/60%) no
+cambiaron, solo el fixture de prueba que los ejercitaba.
+
 ## Alcance fuera de este slice
 
 - Estados `ACTIVE_CONFLICT`/`PASSED` — necesitan trayectoria/velocidad

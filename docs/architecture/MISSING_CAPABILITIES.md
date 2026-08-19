@@ -225,10 +225,22 @@ de Alert Policy — ya conectada (ver arriba, ADR-0017).
 
 ## Simulación
 
-- Motor de simulación (`VirtualAmbulance`, `VirtualCar`, `VirtualMotorcycle`,
-  `VirtualRoute`, `SimulationEvent`) — no existe código.
-- Ningún escenario de prueba (ruido GPS, pérdida de conexión, corredores
-  superpuestos, etc.) está implementado.
+- **Actualizado 2026-08-19 (primer slice real):** `SimulationEngineService`
+  construido — alimenta posiciones sintéticas a los servicios REALES del
+  Conflict Engine (`LocationStateService`, `RouteSessionService`,
+  `EmergencyCorridorService`, `AlertPolicyService`), no una copia paralela.
+  Escenario 1 del roadmap ("una ambulancia / 10 vehículos") implementado y
+  verificado. `POST /simulation/scenarios/:name/run` (sin UI todavía).
+  Encontró y corrigió un bug real en `EmergencyCorridorService.sampleAhead`
+  (muestreaba por índice de punto crudo, no por distancia real — dejaba
+  huecos reales sin cubrir en rutas con pocos waypoints). Ver
+  `docs/decisions/ADR-0022-simulation-engine-first-slice.md`. Verificado
+  con Redis real, 18/18 casos (incluye determinismo: misma corrida dos
+  veces produce el mismo patrón de detección).
+  Todavía en 0%: escenarios 2–12 del roadmap (varias ambulancias
+  simultáneas, GPS con ruido/atraso, desconexión, corredores cruzados,
+  etc.) — se agregan uno a la vez; métricas de falsos positivos/conflictos
+  perdidos (necesitan verdad de terreno explícita, no modelada todavía).
 
 ## Calidad / Verificación
 
