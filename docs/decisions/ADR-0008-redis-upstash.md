@@ -63,13 +63,18 @@ backend llega a exponerse públicamente.
 - Arranque sin `REDIS_URL`: falla rápido y claro (`Faltan variables de entorno
   requeridas: REDIS_URL...`) — ya no es opcional, es infraestructura real.
 
+**Actualizado 2026-08-19:** el fundador provisionó la cuenta real de Upstash (plan
+Fixed, región AWS — mismo proveedor de nube que Supabase, `ca-central-1`) y repitió
+la prueba de humo contra su instancia real de producción: `POST /system/queue/ping`
+→ `{"jobId":"1"}`, `GET /system/queue/ping/1` → `"state":"completed"`. Fase 1 del
+cronograma queda cerrada por completo, sin nada pendiente ni simulado.
+
 ## Consecuencias
 
 - El backend ahora **requiere** Redis para arrancar, incluso para `/health`. Es
   intencional: Redis dejó de ser una pieza opcional del proyecto.
-- Falta que el fundador provisione la cuenta real de Upstash (yo no puedo crear
-  cuentas en su nombre) — instrucciones entregadas por fuera de este documento, con
-  URL y pasos exactos, incluyendo la advertencia del plan Fixed vs Pay-As-You-Go.
+- ~~Falta que el fundador provisione la cuenta real de Upstash~~ — resuelto
+  2026-08-19, ver arriba.
 - Sigue pendiente, sin resolver aquí: dónde corre `backend/` de forma permanente en
   producción (hoy solo corrió local y en CI) — un Worker de BullMQ necesita un
   proceso vivo constante, no solo un request-response server. Anotado como el
