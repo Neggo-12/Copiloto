@@ -78,10 +78,20 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   Geocoding (`Parque Berrío, Medellín` → status OK, coordenadas correctas) y
   Routes (Parque Berrío → El Poblado → 7.287m, ~18min, polyline real).
   Pendiente:
+- **Actualizado 2026-08-19 (3):** tercer slice construido — `RouteSessionService`
+  (ruta activa por usuario en Redis) y detección de desvío
+  (`route-deviation.ts`, distancia real Haversine al punto más cercano de la
+  ruta decodificada). `POST/DELETE /navigation/route-session` para arrancar/
+  cerrar; `LocationGateway` calcula desvío en cada `location:update` si hay
+  ruta activa. Ver `docs/decisions/ADR-0011-route-deviation.md`. Verificado
+  con datos reales: decodificación + cálculo de distancia contra la polyline
+  real devuelta por Google (ADR-0010), y persistencia contra Redis real —
+  6/6 y 4/4 casos, respectivamente. Es la misma pieza matemática que
+  necesitará el Conflict Engine de Emergency Corridor (Fase 3).
 - Permisos y sesión de ubicación foreground (lado cliente/app).
 - `PlacesProvider` (diferido — sin consumidor real todavía).
-- Detección de desvío de ruta (route-deviation) sobre `RoutingProvider` +
-  `LocationStateService` (diferido — sin consumidor real todavía).
+- Recompute automático de ruta al detectar desvío (diferido — decisión de
+  producto/UX no definida todavía; cada recálculo tiene costo real).
 - Recordatorios por ubicación (geofencing + trigger).
 - Recordatorios por tiempo (jobs con BullMQ).
 

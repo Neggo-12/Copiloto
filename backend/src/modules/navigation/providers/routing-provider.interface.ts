@@ -4,10 +4,8 @@
  * sin que ningún caller de `RoutingProvider` se entere — solo cambia el
  * binding en `navigation.module.ts`.
  */
-export interface LatLng {
-  latitude: number;
-  longitude: number;
-}
+import type { LatLng } from "../../../common/geo/types";
+export type { LatLng };
 
 export type TravelMode = "DRIVE" | "WALK" | "BICYCLE" | "TWO_WHEELER";
 

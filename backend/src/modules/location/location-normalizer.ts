@@ -1,3 +1,4 @@
+import { haversineMeters } from "../../common/geo/haversine";
 import type { LocationQuality, LocationValidationResult, NormalizedLocation, RawLocationReport } from "./location.types";
 
 /**
@@ -16,16 +17,6 @@ const MAX_IMPLIED_SPEED_MPS = 100; // ~360 km/h
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6_371_000;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export function validateRawReport(raw: RawLocationReport, serverNow: number, previous: NormalizedLocation | null): LocationValidationResult {
@@ -54,7 +45,10 @@ export function validateRawReport(raw: RawLocationReport, serverNow: number, pre
 
   if (previous) {
     const deltaSeconds = Math.max((raw.clientTimestamp - previous.clientTimestamp) / 1000, 0.001);
-    const distanceMeters = haversineMeters(previous.latitude, previous.longitude, raw.latitude, raw.longitude);
+    const distanceMeters = haversineMeters(
+      { latitude: previous.latitude, longitude: previous.longitude },
+      { latitude: raw.latitude, longitude: raw.longitude },
+    );
     const impliedSpeed = distanceMeters / deltaSeconds;
     if (impliedSpeed > MAX_IMPLIED_SPEED_MPS) {
       return { ok: false, rejectionReason: "implausible_jump", quality: "good" };

@@ -3,6 +3,9 @@ import { ConnectedSocket, MessageBody, OnGatewayConnection, SubscribeMessage, We
 import type { Socket } from "socket.io";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
+import { decodePolyline } from "../../common/geo/polyline";
+import { RouteSessionService } from "../route-session/route-session.service";
+import { computeDeviation } from "../route-session/route-deviation";
 import { LocationStateService } from "./location-state.service";
 import { normalizeReport, validateRawReport } from "./location-normalizer";
 import type { RawLocationReport } from "./location.types";
@@ -32,6 +35,7 @@ export class LocationGateway implements OnGatewayConnection {
   constructor(
     @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
     private readonly locationState: LocationStateService,
+    private readonly routeSession: RouteSessionService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -58,7 +62,12 @@ export class LocationGateway implements OnGatewayConnection {
   async handleLocationUpdate(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() raw: RawLocationReport,
-  ): Promise<{ accepted: boolean; quality?: string; rejectionReason?: string }> {
+  ): Promise<{
+    accepted: boolean;
+    quality?: string;
+    rejectionReason?: string;
+    route?: { onRoute: boolean; distanceFromRouteMeters: number };
+  }> {
     const userId = client.data?.userId;
     if (!userId) {
       throw new UnauthorizedException("Socket sin sesión autenticada");
@@ -76,6 +85,17 @@ export class LocationGateway implements OnGatewayConnection {
     const normalized = normalizeReport(userId, raw, now, validation.quality);
     await this.locationState.setCurrent(normalized);
 
-    return { accepted: true, quality: validation.quality };
+    const activeRoute = await this.routeSession.getActive(userId);
+    let route: { onRoute: boolean; distanceFromRouteMeters: number } | undefined;
+    if (activeRoute) {
+      const routePoints = decodePolyline(activeRoute.encodedPolyline);
+      const deviation = computeDeviation({ latitude: normalized.latitude, longitude: normalized.longitude }, routePoints);
+      route = { onRoute: !deviation.offRoute, distanceFromRouteMeters: Math.round(deviation.distanceMeters) };
+      if (deviation.offRoute) {
+        this.logger.warn(`Usuario ${userId} se salió de su ruta activa (${route.distanceFromRouteMeters}m de la ruta)`);
+      }
+    }
+
+    return { accepted: true, quality: validation.quality, route };
   }
 }
