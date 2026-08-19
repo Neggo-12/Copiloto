@@ -22,7 +22,12 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   se agregan como módulos conforme haya trabajo real, no todos de una vez.
 - **Resuelto 2026-08-18:** PostGIS 3.3.7 habilitado en el proyecto (schema
   `extensions`), como parte de la Fase 1 del cronograma de Emergency Corridor.
-- Redis + BullMQ para estado caliente/jobs (recordatorios por tiempo, cooldowns).
+- **Resuelto 2026-08-19:** Redis + BullMQ conectados como infraestructura real
+  (Upstash, decisión definitiva del fundador). `RedisModule`/`QueueModule` en
+  `backend/`, registro central de colas (`emergency-alerts`/`location-reminders`
+  reservadas sin processor todavía; cola `system` con job `ping` como prueba de
+  humo real, verificada de punta a punta contra un Redis real). Ver
+  `docs/decisions/ADR-0008-redis-upstash.md`.
 - WebSockets/tiempo real: la tabla existe, pero no se activó ninguna suscripción
   Realtime ni se escribió código que la use.
 - Auth real: **parcial, 2026-08-18.** Verificación telefónica ya conectada a
