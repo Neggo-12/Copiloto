@@ -26,7 +26,10 @@ export interface ProfileController {
   privacySettings: PrivacySettings;
   notificationSettings: NotificationSettings;
   twoStepVerificationEnabled: boolean;
+  /** Nombre visible / "acerca de" — optimista local + guardado real en `profiles` (ADR-0028). */
   updateProfile: (patch: ProfilePatch) => void;
+  /** Foto de perfil real: sube el archivo a Storage y guarda la URL pública (ADR-0028). */
+  updateAvatar: (file: File) => Promise<void>;
   revokeDevice: (deviceId: DeviceId) => void;
   setTwoStepVerification: (enabled: boolean) => void;
   setPrivacyAudience: (key: keyof PrivacySettings, audience: PrivacyAudience) => void;
@@ -36,7 +39,9 @@ export interface ProfileController {
 
 /**
  * Controlador de la pestaña Perfil/Ajustes: cada acción aislada de
- * `profile.ts` queda vinculada al estado local de la sesión simulada.
+ * `profile.ts` queda vinculada al estado local de la sesión. Desde
+ * ADR-0028, nombre/"acerca de"/foto son reales (`profiles` + bucket
+ * `avatars`) — antes se perdían al recargar, ver ese ADR para el detalle.
  */
 export function useProfile(): ProfileController {
   const { currentUser, updateCurrentUser, signOut } = useAppStore();
@@ -44,9 +49,40 @@ export function useProfile(): ProfileController {
 
   const updateProfile = useCallback(
     (patch: ProfilePatch) => {
+      // Optimista primero (misma UI de siempre), guardado real disparado
+      // aparte — mismo patrón de useChats.ts (reconcileSentMessage etc.):
+      // no bloquear la UI esperando la red, pero sí persistir de verdad.
       updateCurrentUser((user) => profileActions.applyProfilePatch(user, patch));
+      const userId = currentUser?.id;
+      if (!userId) return;
+      const { displayName, about } = patch;
+      if (displayName === undefined && about === undefined) return;
+      void profileActions.updateProfileRemote(userId, {
+        ...(displayName !== undefined ? { displayName } : {}),
+        ...(about !== undefined ? { about } : {}),
+      });
     },
-    [updateCurrentUser],
+    [updateCurrentUser, currentUser?.id],
+  );
+
+  const updateAvatar = useCallback(
+    async (file: File) => {
+      const userId = currentUser?.id;
+      if (!userId) return;
+      // Vista previa inmediata con el archivo real recién elegido — se
+      // reemplaza por la URL pública real apenas termine de subirse.
+      const previewUrl = URL.createObjectURL(file);
+      updateCurrentUser((user) =>
+        profileActions.applyProfilePatch(user, { avatarUrl: previewUrl }),
+      );
+      const publicUrl = await profileActions.uploadAndSaveAvatar(userId, file);
+      if (publicUrl) {
+        updateCurrentUser((user) =>
+          profileActions.applyProfilePatch(user, { avatarUrl: publicUrl }),
+        );
+      }
+    },
+    [updateCurrentUser, currentUser?.id],
   );
 
   const revokeDevice = useCallback((deviceId: DeviceId) => {
@@ -79,6 +115,7 @@ export function useProfile(): ProfileController {
     notificationSettings: state.notificationSettings,
     twoStepVerificationEnabled: state.securitySettings.twoStepVerificationEnabled,
     updateProfile,
+    updateAvatar,
     revokeDevice,
     setTwoStepVerification,
     setPrivacyAudience,

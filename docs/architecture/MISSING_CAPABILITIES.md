@@ -321,29 +321,51 @@ de Alert Policy — ya conectada (ver arriba, ADR-0017).
   aprueba/rechaza desde una vista simple. Cero código todavía — es el
   siguiente slice natural sobre `emergency_vehicles` (ADR-0006), no una
   tabla nueva.
-- **Agregado 2026-08-19 (decisión del fundador — cifrado):** los mensajes de
+- **Actualizado 2026-08-19 (diseño listo, ver ADR-0026):** los mensajes de
   `proyecto-mensajeria` serán cifrados de extremo a extremo real — ni el
   fundador ni este backend podrán leer el contenido, ni siquiera con acceso
   admin. Hoy NO existe ningún cifrado (los mensajes son filas de texto plano
-  en Supabase). Esto es una iniciativa de seguridad grande (manejo de
-  llaves por dispositivo, intercambio de llaves, qué pasa si alguien pierde
-  su dispositivo) que necesita su propio diseño dedicado (probablemente su
-  propio ADR de arquitectura) antes de escribir código — no es una
-  extensión trivial de mensajería. Cero código todavía. Consecuencia directa
-  para el panel admin: solo podrá mostrar METADATOS (quién le escribió a
-  quién, cuándo, conteo) nunca contenido — a menos que el fundador pida
-  después el modelo híbrido de "mensaje reportado se descifra para
-  revisión", que quedó descartado por ahora a favor de E2E real sin
-  excepciones.
-- **Agregado 2026-08-19 (decisión del fundador — empaquetado móvil):**
-  recomendado Android primero (sin necesidad de Mac ni cuenta Apple
-  Developer, distribución directa de APK a probadores sin pasar por
-  tienda), con iOS agregado poco después reusando el mismo envoltorio
-  Capacitor (costo incremental bajo una vez armado el primero) — el
-  fundador ya tiene Mac disponible, así que esa ventaja de Android pesa
-  menos en este caso concreto; decisión final pendiente de confirmación.
-  Cero código todavía — la app hoy es 100% web (TanStack Start), sin
-  ningún envoltorio nativo.
+  en Supabase). El diseño del protocolo ya está definido (a pedido explícito
+  del fundador: "libsodium.js" / `crypto_box`, claves generadas en el
+  dispositivo, tabla nueva `user_encryption_keys`) — ver
+  `docs/decisions/ADR-0026-e2e-encryption-protocol-design.md`. Cero código
+  todavía, sigue siendo el siguiente paso. Consecuencia directa para el
+  panel admin y para las tools de asistente `read_messages`/`send_message`
+  (ADR-0018): solo podrán ver/manipular METADATOS o ciphertext opaco, nunca
+  contenido en claro — incluye una tensión real todavía sin decidir con el
+  fundador: leer un mensaje recibido en voz alta ya no podría hacerse desde
+  el backend, tendría que pasar a ser 100% client-side.
+- **Confirmado 2026-08-19 (decisión del fundador — empaquetado móvil):**
+  Android primero, confirmado explícitamente por el fundador ("nos vamos por
+  la opción de desarrollo en Android para hacer las pruebas más adelante"),
+  con iOS agregado después reusando el mismo envoltorio Capacitor. Cero
+  código todavía — la app hoy es 100% web (TanStack Start), sin ningún
+  envoltorio nativo; empaquetar Android queda como trabajo pendiente, no
+  bloqueante para los slices de mensajería en curso.
+- **Agregado 2026-08-19, pivoteado el mismo día (ver ADR-0027):** wake word
+  general + verificación de quién habla. Originalmente el fundador pidió
+  nombre personalizado del asistente (ej. "Estefa") + wake word — la
+  auditoría encontró un bloqueo real incluso para el campo simple de
+  nombre: `updateProfile` (`useProfile.ts`) era 100% local/mock, nunca
+  escribía en `profiles` — **resuelto 2026-08-20, ver ADR-0028**: nombre,
+  "acerca de" y foto de perfil ahora persisten de verdad (`UPDATE profiles`
+  + subida real al bucket `avatars`), verificado con RLS real. Ya no es un
+  prerequisito pendiente si se retoma el nombre personalizado. El mismo día
+  del hallazgo original, el fundador pidió suspender la personalización
+  por nombre (para no trabarse ahí) y priorizar algo distinto y más
+  importante: que el sistema identifique QUIÉN habla, para que un comando
+  de voz ("envía este mensaje") no lo dispare un tercero o ruido de fondo.
+  Wake word (genérico, sin nombre por cliente) sigue necesitando un motor
+  local en el dispositivo — precios reales investigados: Picovoice gratis
+  = 1 usuario/mes, ~US$6,000/año = 100 usuarios, o `openWakeWord` gratis
+  sin soporte oficial de Android. Verificación de hablante es tecnología
+  DISTINTA (no detecta la palabra, identifica la voz) — investigado y
+  confirmado activo **Picovoice Eagle** (100% on-device, enrolamiento en
+  segundos, verifica desde un solo comando), precio no publicado. Mitigación
+  ya existente hoy sin código nuevo: las acciones sensibles ya exigen
+  confirmación explícita antes de ejecutarse (ADR-0016/0018). Ver
+  `docs/decisions/ADR-0027-assistant-custom-name-and-wake-word-design.md`.
+  Cero código todavía.
 
 **Actualizado 2026-08-18 (tarde):** el proyecto Supabase "Copiloto" ya existe
 (`wrkuusacwkdazfwynhkz`, región `ca-central-1`, `ACTIVE_HEALTHY`, creado 2026-08-16).

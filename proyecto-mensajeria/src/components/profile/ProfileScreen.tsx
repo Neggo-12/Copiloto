@@ -33,7 +33,7 @@ export function ProfileScreen({
   tabBar: ReactNode;
   onOpenSubscreen: (screen: ProfileSubscreen) => void;
 }) {
-  const { currentUser, updateProfile, signOut } = controller;
+  const { currentUser, updateProfile, updateAvatar, signOut } = controller;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isEditing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(currentUser?.displayName ?? "");
@@ -80,7 +80,7 @@ export function ProfileScreen({
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
-              if (file) updateProfile({ avatarUrl: URL.createObjectURL(file) });
+              if (file) void updateAvatar(file);
             }}
           />
 

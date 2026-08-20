@@ -10,8 +10,10 @@ import type {
   PrivacyAudience,
   PrivacySettings,
   SecuritySettings,
+  UserId,
   UserProfile,
 } from "@/lib/domain/types";
+import { supabase } from "@/lib/supabase/client";
 
 export interface ProfileState {
   devices: ConnectedDevice[];
@@ -72,6 +74,65 @@ export function applyProfilePatch(user: UserProfile, patch: ProfilePatch): UserP
   if (patch.about !== undefined) next.about = patch.about.slice(0, ABOUT_MAX_LENGTH).trim();
   if (patch.avatarUrl !== undefined) next.avatarUrl = patch.avatarUrl;
   return next;
+}
+
+/* ------------------------------------------------------------------ */
+/* Backend real: persistencia del perfil (`profiles`, ADR-0028)         */
+/*                                                                      */
+/* Antes `updateCurrentUser` (useProfile.ts/AppStore.tsx) solo tocaba   */
+/* el estado en memoria de la sesión — cualquier edición de nombre/     */
+/* "acerca de"/foto se perdía al recargar. RLS `profiles_update_self`   */
+/* ya existía desde el esquema original (ADR-0001), solo faltaba usarla.*/
+/* ------------------------------------------------------------------ */
+
+/** Guarda nombre/"acerca de" reales en `profiles` — RLS ya exige `id = auth.uid()`. */
+export async function updateProfileRemote(
+  userId: UserId,
+  patch: { displayName?: string; about?: string },
+): Promise<boolean> {
+  const update: Record<string, string> = {};
+  if (patch.displayName !== undefined) update["display_name"] = patch.displayName;
+  if (patch.about !== undefined) update["about"] = patch.about;
+  if (Object.keys(update).length === 0) return true;
+
+  const { error } = await supabase.from("profiles").update(update).eq("id", userId);
+  if (error) {
+    console.error("[profile] updateProfileRemote: no se pudo guardar", error);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Sube una foto de perfil real al bucket público `avatars` (ya existía
+ * desde ADR-0001, RLS `avatars_owner_write`: solo a la carpeta
+ * `{auth.uid()}/...`) y guarda la URL pública en `profiles.avatar_url`.
+ * Devuelve la URL pública real, o `null` si algo falló.
+ */
+export async function uploadAndSaveAvatar(userId: UserId, file: File): Promise<string | null> {
+  const extension = file.name.split(".").pop() ?? "jpg";
+  const path = `${userId}/${crypto.randomUUID()}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(path, file, { contentType: file.type || "image/jpeg" });
+  if (uploadError) {
+    console.error("[profile] uploadAndSaveAvatar: no se pudo subir la foto", uploadError);
+    return null;
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from("avatars").getPublicUrl(path);
+
+  const { error: patchError } = await supabase
+    .from("profiles")
+    .update({ avatar_url: publicUrl })
+    .eq("id", userId);
+  if (patchError) {
+    console.error("[profile] uploadAndSaveAvatar: no se pudo guardar la URL", patchError);
+    return null;
+  }
+  return publicUrl;
 }
 
 /** El celular y el correo solo cambian pasando de nuevo por verificación. */
