@@ -135,6 +135,22 @@ export async function uploadAndSaveAvatar(userId: UserId, file: File): Promise<s
   return publicUrl;
 }
 
+/**
+ * Marca "visto por última vez ahora" real (`profiles.last_seen_at`, ADR-0029)
+ * — mismo patrón de auto-guardado silencioso que `updateProfileRemote`, sin
+ * bloquear ni avisar a la UI si falla (no es crítico, se reintenta solo en
+ * el próximo heartbeat de `useChats.ts`).
+ */
+export async function touchLastSeen(userId: UserId): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) {
+    console.error("[profile] touchLastSeen: no se pudo actualizar", error);
+  }
+}
+
 /** El celular y el correo solo cambian pasando de nuevo por verificación. */
 export const REVERIFICATION_NOTICE =
   "Para cambiar tu número o tu correo necesitas verificarlos de nuevo con un código.";

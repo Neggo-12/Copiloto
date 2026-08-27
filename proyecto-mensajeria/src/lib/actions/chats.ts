@@ -6,6 +6,7 @@
  */
 import type {
   Chat,
+  ChatActivity,
   ChatId,
   DisappearingTtlSeconds,
   Message,
@@ -14,6 +15,7 @@ import type {
   MessageKind,
   StatusReplyRef,
   UserId,
+  UserProfile,
 } from "@/lib/domain/types";
 import { CURRENT_USER_ID } from "@/lib/domain/mock-data";
 import { supabase } from "@/lib/supabase/client";
@@ -22,6 +24,8 @@ import { backend } from "@/lib/backend/client";
 export interface ChatsState {
   chats: Chat[];
   messages: Message[];
+  /** Perfiles reales de los participantes de mis chats (ADR-0029) — antes vivía 100% en MOCK_PARTICIPANTS. */
+  participants: Record<UserId, UserProfile>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -250,16 +254,110 @@ export async function markMessagesDeliveredRemote(messageIds: MessageId[]): Prom
   }
 }
 
+/** Columnas de `profiles` para armar el perfil real de un participante (ADR-0029). */
+const PARTICIPANT_PROFILE_COLUMNS =
+  "id, display_name, avatar_url, about, phone, last_seen_at, last_seen_visibility, created_at";
+
+interface ParticipantProfileRow {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  about: string | null;
+  phone: string | null;
+  last_seen_at: string | null;
+  last_seen_visibility: "everyone" | "contacts" | "nobody";
+  created_at: string;
+}
+
+/**
+ * Convierte una fila de `profiles` en el `UserProfile` de un tercero.
+ * `isOnline` arranca en `false` — se completa en vivo con presencia real de
+ * Supabase Realtime (ver `useChats.ts`), no hay forma de saberlo desde una
+ * simple lectura de tabla. `lastSeenAt` ya llega filtrado por
+ * `canSeeLastSeen` (privacidad real, no se expone si el dueño la restringió).
+ */
+function mapParticipantProfileRow(
+  row: ParticipantProfileRow,
+  canSeeLastSeen: boolean,
+): UserProfile {
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    about: row.about ?? "",
+    avatarUrl: row.avatar_url,
+    phoneNumber: row.phone ?? "",
+    phoneCountryCode: "CO",
+    email: null,
+    isPhoneVerified: true,
+    isEmailVerified: false,
+    lastSeenAt: canSeeLastSeen ? row.last_seen_at : null,
+    isOnline: false,
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * Construye el mapa real de perfiles de participantes (ADR-0029) — antes
+ * `useChats.ts` usaba 100% `MOCK_PARTICIPANTS`, sin ningún dato real de
+ * chats/contactos reales. Respeta `last_seen_visibility` (columna que ya
+ * existía desde ADR-0001, nunca conectada): "everyone" se muestra siempre,
+ * "nobody" nunca, "contacts" solo si YO soy contacto real del dueño del
+ * perfil — la RLS de `contacts` es privada (`user_id = auth.uid()`), así que
+ * esa pregunta se resuelve con la función `is_contact_of` (también ya
+ * existía en el esquema, sin usar todavía: expone solo un booleano, nunca la
+ * fila completa, y siempre evalúa al visitante real vía `auth.uid()`).
+ */
+async function buildParticipantProfiles(
+  rows: ParticipantProfileRow[],
+): Promise<Record<UserId, UserProfile>> {
+  const contactsOnly = rows.filter((row) => row.last_seen_visibility === "contacts");
+  const isContactOfMe = new Map<string, boolean>();
+  if (contactsOnly.length > 0) {
+    const results = await Promise.all(
+      contactsOnly.map(async (row) => {
+        const { data, error } = await supabase.rpc("is_contact_of", { p_owner_id: row.id });
+        if (error) {
+          console.error("[chats] is_contact_of falló, se oculta 'visto por última vez'", error);
+          return [row.id, false] as const;
+        }
+        return [row.id, data === true] as const;
+      }),
+    );
+    for (const [id, isContact] of results) isContactOfMe.set(id, isContact);
+  }
+
+  const result: Record<UserId, UserProfile> = {};
+  for (const row of rows) {
+    const canSeeLastSeen =
+      row.last_seen_visibility === "everyone" ||
+      (row.last_seen_visibility === "contacts" && isContactOfMe.get(row.id) === true);
+    result[row.id] = mapParticipantProfileRow(row, canSeeLastSeen);
+  }
+  return result;
+}
+
+/** Trae y arma el `UserProfile` real de un solo participante (chat nuevo por Realtime o recién creado). */
+export async function fetchParticipantProfile(userId: UserId): Promise<UserProfile | null> {
+  const { data } = await supabase
+    .from("profiles")
+    .select(PARTICIPANT_PROFILE_COLUMNS)
+    .eq("id", userId)
+    .maybeSingle();
+  if (!data) return null;
+  const map = await buildParticipantProfiles([data as ParticipantProfileRow]);
+  return map[userId] ?? null;
+}
+
 /** Carga todos los chats reales del usuario junto con sus mensajes. */
 export async function fetchChatsAndMessages(
   userId: UserId,
-): Promise<{ chats: Chat[]; messages: Message[] }> {
+): Promise<{ chats: Chat[]; messages: Message[]; participants: Record<UserId, UserProfile> }> {
   const { data: myParticipantRows } = await supabase
     .from("chat_participants")
     .select(PARTICIPANT_COLUMNS)
     .eq("user_id", userId);
   const chatIds = (myParticipantRows ?? []).map((row) => row.chat_id);
-  if (chatIds.length === 0) return { chats: [], messages: [] };
+  if (chatIds.length === 0) return { chats: [], messages: [], participants: {} };
 
   const [{ data: chatRows }, { data: allParticipantRows }, { data: messageRows }] =
     await Promise.all([
@@ -277,9 +375,15 @@ export async function fetchChatsAndMessages(
   );
   const { data: profileRows } = await supabase
     .from("profiles")
-    .select("id, display_name, avatar_url")
+    .select(PARTICIPANT_PROFILE_COLUMNS)
     .in("id", participantUserIds.length > 0 ? participantUserIds : [userId]);
   const profileById = new Map((profileRows ?? []).map((row) => [row.id, row]));
+  // OJO: se llama `participantProfiles` (no `participants`) a propósito — el
+  // `.map` de más abajo ya usa ese nombre para la lista de filas de
+  // `chat_participants` de CADA chat; llamarlo igual lo taparía sin avisar.
+  const participantProfiles = await buildParticipantProfiles(
+    (profileRows ?? []) as ParticipantProfileRow[],
+  );
 
   const participantsByChat = new Map<string, ChatParticipantRow[]>();
   for (const row of (allParticipantRows ?? []) as ChatParticipantRow[]) {
@@ -317,7 +421,7 @@ export async function fetchChatsAndMessages(
     ).length;
   }
 
-  return { chats, messages };
+  return { chats, messages, participants: participantProfiles };
 }
 
 /** Trae un chat puntual (usado cuando llega por Realtime uno nuevo del que no era parte antes). */
@@ -358,6 +462,46 @@ export function mapRealtimeMessageRow(row: unknown): Message {
 /** Inserta un mensaje ya llegado por Realtime en el estado local (mismo camino que uno propio). */
 export function applyIncomingMessage(state: ChatsState, message: Message): ChatsState {
   return touchChat({ ...state, messages: [...state.messages, message] }, message);
+}
+
+/**
+ * Cambia `chat.activity` en vivo (ADR-0029) — "escribiendo…"/"grabando
+ * audio…"/inactivo, real vía Realtime Broadcast (ver `useChats.ts`), nunca
+ * persistido en la base (es puramente efímero, como debe ser).
+ */
+export function setChatActivity(
+  state: ChatsState,
+  chatId: ChatId,
+  activity: ChatActivity,
+): ChatsState {
+  if (!state.chats.some((chat) => chat.id === chatId && chat.activity === activity)) {
+    return {
+      ...state,
+      chats: state.chats.map((chat) => (chat.id === chatId ? { ...chat, activity } : chat)),
+    };
+  }
+  return state;
+}
+
+/** Agrega o actualiza un perfil real de participante (chat nuevo o recién creado, ADR-0029). */
+export function mergeParticipant(state: ChatsState, profile: UserProfile): ChatsState {
+  return { ...state, participants: { ...state.participants, [profile.id]: profile } };
+}
+
+/**
+ * Refleja quién está en línea AHORA MISMO (ADR-0029) según la presencia real
+ * de Supabase Realtime — nunca un booleano fijo. Solo toca a los
+ * participantes que ya conocemos; no inventa perfiles nuevos.
+ */
+export function applyOnlinePresence(state: ChatsState, onlineUserIds: Set<UserId>): ChatsState {
+  let changed = false;
+  const nextParticipants: Record<UserId, UserProfile> = {};
+  for (const [id, profile] of Object.entries(state.participants)) {
+    const isOnline = onlineUserIds.has(id);
+    if (isOnline !== profile.isOnline) changed = true;
+    nextParticipants[id] = isOnline === profile.isOnline ? profile : { ...profile, isOnline };
+  }
+  return changed ? { ...state, participants: nextParticipants } : state;
 }
 
 /** Inserta un mensaje de texto real; le llega al otro usuario por Realtime. */
@@ -1144,6 +1288,7 @@ export function unarchiveChat(state: ChatsState, chatId: ChatId): ChatsState {
 
 export function deleteChat(state: ChatsState, chatId: ChatId): ChatsState {
   return {
+    ...state,
     chats: state.chats.filter((chat) => chat.id !== chatId),
     messages: state.messages.filter((message) => message.chatId !== chatId),
   };

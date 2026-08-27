@@ -26,6 +26,7 @@ import {
 import { CURRENT_USER_ID } from "@/lib/domain/mock-data";
 import type { ChatId, Message } from "@/lib/domain/types";
 import type { ChatsController } from "@/hooks/useChats";
+import { formatLastSeen } from "@/lib/format";
 
 /** Pantalla 2: conversación individual. */
 export function ChatThreadScreen({
@@ -107,7 +108,7 @@ export function ChatThreadScreen({
         ? "grabando audio…"
         : other?.isOnline
           ? "en línea"
-          : "visto hace poco";
+          : formatLastSeen(other?.lastSeenAt ?? null);
 
   // En esta fase las llamadas de grupo no aplican: se oculta el botón.
   const callButton = isGroup ? undefined : (
@@ -247,6 +248,7 @@ export function ChatThreadScreen({
             setReplyTo(null);
           },
           onStartLiveLocation: (duration) => void controller.startLiveLocation(chatId, duration),
+          onTyping: () => controller.notifyTyping(chatId),
         }}
       />
 

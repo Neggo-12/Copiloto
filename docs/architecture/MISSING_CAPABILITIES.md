@@ -103,6 +103,20 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   `supabase_realtime`, migración de una línea), y `watchPosition` real con
   actualizaciones periódicas mientras dura la ubicación en vivo (15
   min/1 h/8 h). Ver `docs/decisions/ADR-0025-real-location-sharing-messaging.md`.
+- **Resuelto 2026-08-26 (ADR-0029):** presencia "en línea", "escribiendo…" y
+  "visto por última vez" reales en `proyecto-mensajeria` — antes
+  `chat.activity` siempre era `"idle"` para chats reales y `participants`
+  (usado para "en línea"/nombre/foto de terceros) era 100% `MOCK_PARTICIPANTS`,
+  sin ninguna relación con datos reales. Ahora `participants` se arma con
+  perfiles reales de `profiles`; "en línea" usa Supabase Realtime Presence;
+  "escribiendo…" usa Broadcast efímero por chat (nunca se escribe en la
+  base); "visto por última vez" escribe `profiles.last_seen_at` de verdad
+  (heartbeat) y respeta `last_seen_visibility` (columna y función
+  `is_contact_of` que ya existían desde ADR-0001, sin conectar). Sigue sin
+  construir: presencia/"escribiendo…" dentro de grupos (por remitente
+  específico) y aviso real de `"recording_audio"` (notas de voz no avisan
+  actividad todavía). Ver
+  `docs/decisions/ADR-0029-real-presence-typing-last-seen.md`.
 - `create_reminder` (por tiempo, hora fija, BullMQ) — tipo de recordatorio
   distinto a `create_location_reminder` (geofence, ya existe) y a la nota
   simple sin hora (`kind: "note"`, ADR-0023, ya existe); sigue sin

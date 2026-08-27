@@ -26,6 +26,8 @@ export interface ComposerHandlers {
   onShareCurrentLocation: () => void;
   /** Inicia la ubicación en tiempo real con la duración elegida — GPS real (ADR-0025). */
   onStartLiveLocation: (duration: LiveLocationDuration) => void;
+  /** Avisa "escribiendo…" real al otro participante (ADR-0029) — opcional, throttle ya vive en el controlador. */
+  onTyping?: () => void;
 }
 
 /** Campo inferior: texto/enviar, mantener para grabar y adjuntos. */
@@ -249,7 +251,10 @@ export function MessageComposer({
           </button>
           <textarea
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              handlers.onTyping?.();
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();

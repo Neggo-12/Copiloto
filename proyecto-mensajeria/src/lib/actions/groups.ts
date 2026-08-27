@@ -153,6 +153,7 @@ export function leaveGroup(state: ChatsState, chatId: ChatId): ChatsState {
   const group = findGroup(state, chatId);
   if (!group) return state;
   return {
+    ...state,
     chats: state.chats.filter((chat) => chat.id !== chatId),
     messages: state.messages.filter((message) => message.chatId !== chatId),
   };
@@ -163,6 +164,7 @@ export function deleteGroup(state: ChatsState, chatId: ChatId): ChatsState {
   const group = findGroup(state, chatId);
   if (!group || !canManageGroup(group)) return state;
   return {
+    ...state,
     chats: state.chats.filter((chat) => chat.id !== chatId),
     messages: state.messages.filter((message) => message.chatId !== chatId),
   };

@@ -34,6 +34,22 @@ export function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * "Visto por última vez" real (ADR-0029) — antes esto era el string fijo
+ * "visto hace poco" sin importar el dato real. `iso` ya viene filtrado por
+ * privacidad (`null` si el dueño restringió quién puede verlo); en ese caso
+ * se conserva el mismo texto genérico de siempre, para no exponer nada.
+ */
+export function formatLastSeen(iso: string | null): string {
+  if (!iso) return "visto hace poco";
+  const diffMinutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (diffMinutes < 1) return "visto hace un momento";
+  if (diffMinutes < 60) return `visto hace ${diffMinutes} min`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `visto hace ${diffHours} h`;
+  return `visto ${formatChatTimestamp(iso)} a las ${formatClock(iso)}`;
+}
+
 export function initialsOf(name: string): string {
   return name
     .split(" ")

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as chatActions from "@/lib/actions/chats";
 import * as groupActions from "@/lib/actions/groups";
+import * as profileActions from "@/lib/actions/profile";
 import type { ChatsState } from "@/lib/actions/chats";
 import { CURRENT_USER_ID, MOCK_PARTICIPANTS } from "@/lib/domain/mock-data";
 import { supabase } from "@/lib/supabase/client";
@@ -12,8 +13,9 @@ import type {
   StatusReplyRef,
   UserId,
 } from "@/lib/domain/types";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
-const EMPTY_STATE: ChatsState = { chats: [], messages: [] };
+const EMPTY_STATE: ChatsState = { chats: [], messages: [], participants: {} };
 
 /**
  * Controlador de la pestaña Chats: expone las acciones aisladas ya vinculadas
@@ -111,6 +113,15 @@ export function useChats() {
                 ? prev
                 : { ...prev, chats: [chat, ...prev.chats] },
             );
+            // Perfil real del otro participante (ADR-0029) — quien me
+            // agregó puede no estar todavía en `participants` si nunca
+            // habíamos chateado antes.
+            const otherId = chat.participantIds.find((id) => id !== CURRENT_USER_ID);
+            if (otherId) {
+              chatActions.fetchParticipantProfile(otherId).then((profile) => {
+                if (profile) setState((prev) => chatActions.mergeParticipant(prev, profile));
+              });
+            }
           });
         },
       )
@@ -172,6 +183,128 @@ export function useChats() {
     return () => {
       void supabase.removeChannel(channel);
     };
+  }, []);
+
+  // Presencia real "en línea" (ADR-0029) — antes `participants[x].isOnline`
+  // venía fijo en `true` desde MOCK_PARTICIPANTS/AppStore.tsx, sin importar
+  // si esa persona tenía la app abierta o no. Un solo canal de Presence de
+  // Supabase Realtime compartido por todos los usuarios; `sync` trae el
+  // conjunto COMPLETO de quién está conectado ahora mismo, no un delta —
+  // así que nunca se puede desincronizar por un evento perdido.
+  useEffect(() => {
+    const channel = supabase.channel("presence:online", {
+      config: { presence: { key: CURRENT_USER_ID } },
+    });
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const onlineUserIds = new Set(Object.keys(channel.presenceState()));
+        setState((prev) => chatActions.applyOnlinePresence(prev, onlineUserIds));
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          void channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // "Visto por última vez" real (ADR-0029): se marca al entrar, cada ~2 min
+  // mientras la pestaña está visible, y al pasar a segundo plano — mismo
+  // espíritu de throttling que el resto del proyecto (ubicación cada ~20s,
+  // ADR-0025), aquí con un intervalo mucho más largo porque no hace falta
+  // más precisión para "visto hace X min/horas".
+  useEffect(() => {
+    void profileActions.touchLastSeen(CURRENT_USER_ID);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible")
+        void profileActions.touchLastSeen(CURRENT_USER_ID);
+    }, 120_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") void profileActions.touchLastSeen(CURRENT_USER_ID);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  // "Escribiendo…" real (ADR-0029) — un canal de Broadcast por chat (nunca
+  // se escribe en la base: es puramente efímero). Se abre uno por cada chat
+  // en la lista y se cierra si el chat se archiva/borra o al desmontar.
+  const typingChannelsRef = useRef(new Map<ChatId, RealtimeChannel>());
+  const typingRevertTimersRef = useRef(new Map<ChatId, ReturnType<typeof setTimeout>>());
+  const lastTypingSentRef = useRef(new Map<ChatId, number>());
+  const chatIdsKey = useMemo(
+    () =>
+      state.chats
+        .map((chat) => chat.id)
+        .sort()
+        .join(","),
+    [state.chats],
+  );
+
+  useEffect(() => {
+    const currentIds = new Set(chatIdsKey ? chatIdsKey.split(",") : []);
+    for (const chatId of currentIds) {
+      if (typingChannelsRef.current.has(chatId)) continue;
+      const channel = supabase
+        .channel(`chat-typing-${chatId}`)
+        .on("broadcast", { event: "typing" }, (payload) => {
+          const senderId = (payload["payload"] as { senderId?: string } | null)?.senderId;
+          if (!senderId || senderId === CURRENT_USER_ID) return;
+          setState((prev) => chatActions.setChatActivity(prev, chatId, "typing"));
+          const existingTimer = typingRevertTimersRef.current.get(chatId);
+          if (existingTimer) clearTimeout(existingTimer);
+          typingRevertTimersRef.current.set(
+            chatId,
+            setTimeout(() => {
+              setState((prev) => chatActions.setChatActivity(prev, chatId, "idle"));
+            }, 4000),
+          );
+        })
+        .subscribe();
+      typingChannelsRef.current.set(chatId, channel);
+    }
+    for (const [chatId, channel] of typingChannelsRef.current) {
+      if (currentIds.has(chatId)) continue;
+      void supabase.removeChannel(channel);
+      typingChannelsRef.current.delete(chatId);
+      const timer = typingRevertTimersRef.current.get(chatId);
+      if (timer) clearTimeout(timer);
+      typingRevertTimersRef.current.delete(chatId);
+    }
+  }, [chatIdsKey]);
+
+  // Limpieza total de canales/temporizadores de "escribiendo…" al desmontar
+  // el hook (ej. cerrar sesión) — mismo cuidado que ya se aplica a los
+  // watchers de GPS de ubicación en vivo, más abajo.
+  useEffect(() => {
+    const channels = typingChannelsRef.current;
+    const timers = typingRevertTimersRef.current;
+    return () => {
+      channels.forEach((channel) => void supabase.removeChannel(channel));
+      channels.clear();
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
+  /** Avisa (con throttle de ~2s) que estoy escribiendo en este chat — real, vía Broadcast (ADR-0029). */
+  const notifyTyping = useCallback((chatId: ChatId) => {
+    const channel = typingChannelsRef.current.get(chatId);
+    if (!channel) return;
+    const now = Date.now();
+    const lastSent = lastTypingSentRef.current.get(chatId) ?? 0;
+    if (now - lastSent < 2000) return;
+    lastTypingSentRef.current.set(chatId, now);
+    void channel.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { senderId: CURRENT_USER_ID },
+    });
   }, []);
 
   /** Simula el avance sent -> delivered -> read de un mensaje propio. */
@@ -640,6 +773,11 @@ export function useChats() {
             ? prev
             : { ...prev, chats: [chat, ...prev.chats] },
         );
+        // Perfil real del nuevo participante (ADR-0029) — un chat recién
+        // creado con un contacto todavía no tiene su fila en `participants`.
+        chatActions.fetchParticipantProfile(participantId).then((profile) => {
+          if (profile) setState((prev) => chatActions.mergeParticipant(prev, profile));
+        });
         return chat.id as ChatId;
       })().finally(() => {
         pendingChatByParticipant.current.delete(participantId);
@@ -667,7 +805,13 @@ export function useChats() {
 
   const archivedChats = useMemo(() => chatActions.getArchivedChats(state), [state]);
 
-  const participants = useMemo(() => MOCK_PARTICIPANTS, []);
+  // Reales primero (ADR-0029), con MOCK_PARTICIPANTS solo como respaldo para
+  // ids que no vienen de un chat real todavía (ej. autores de Estados, que
+  // siguen siendo 100% simulados — no se toca esa demo en este slice).
+  const participants = useMemo(
+    () => ({ ...MOCK_PARTICIPANTS, ...state.participants }),
+    [state.participants],
+  );
 
   /** Crea un grupo con el usuario actual como administrador. */
   const createGroup = useCallback(
@@ -713,6 +857,7 @@ export function useChats() {
     state,
     isLoading,
     participants,
+    notifyTyping,
     openChat,
     sendTextMessage,
     sendVoiceNote,
