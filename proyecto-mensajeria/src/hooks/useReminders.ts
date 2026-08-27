@@ -28,6 +28,8 @@ export interface Reminder {
   createdAt: string;
   triggeredAt: string | null;
   cancelledAt: string | null;
+  /** Hora fija de aviso (ADR-0030) — solo para notas (`kind: "note"`). `null` si no tiene una programada. */
+  remindAt: string | null;
 }
 
 export type ReminderFilter = "all" | "pending" | "done";
@@ -45,6 +47,8 @@ export interface RemindersController {
     title?: string;
     message: string;
     isTask?: boolean;
+    /** Hora fija de aviso opcional (ADR-0030), ISO 8601. */
+    remindAt?: string | null;
   }) => Promise<Reminder | null>;
   /**
    * Recordatorio que se dispara al pasar por un lugar — dictado por voz o
@@ -64,6 +68,8 @@ export interface RemindersController {
     label?: string,
   ) => Promise<Reminder | null>;
   updateText: (id: string, patch: { title?: string | null; message?: string }) => Promise<void>;
+  /** Programa, reprograma o quita (`null`) la hora fija de aviso de una nota (ADR-0030). */
+  scheduleReminder: (id: string, remindAt: string | null) => Promise<void>;
   setIsTask: (id: string, isTask: boolean) => Promise<void>;
   toggleTaskCompleted: (id: string) => Promise<void>;
   toggleArchived: (id: string) => Promise<void>;
@@ -132,13 +138,19 @@ export function useReminders(): RemindersController {
   );
 
   const createNote = useCallback(
-    async (input: { title?: string; message: string; isTask?: boolean }) => {
+    async (input: {
+      title?: string;
+      message: string;
+      isTask?: boolean;
+      remindAt?: string | null;
+    }) => {
       if (!input.message.trim()) return null;
       const created = await backend.post<Reminder>("/location-reminders", {
         kind: "note",
         message: input.message.trim(),
         title: input.title?.trim() || undefined,
         isTask: input.isTask ?? false,
+        remindAt: input.remindAt ?? undefined,
       });
       await refresh();
       return created;
@@ -192,6 +204,14 @@ export function useReminders(): RemindersController {
   const updateText = useCallback(
     async (id: string, patch: { title?: string | null; message?: string }) => {
       await backend.patch(`/location-reminders/${id}`, patch);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const scheduleReminder = useCallback(
+    async (id: string, remindAt: string | null) => {
+      await backend.patch(`/location-reminders/${id}/remind-at`, { remindAt });
       await refresh();
     },
     [refresh],
@@ -254,6 +274,7 @@ export function useReminders(): RemindersController {
     createAtAddress,
     createAtCoordinates,
     updateText,
+    scheduleReminder,
     setIsTask,
     toggleTaskCompleted,
     toggleArchived,

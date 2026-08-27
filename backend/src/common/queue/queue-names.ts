@@ -34,3 +34,18 @@ export interface SystemPingJobResult {
   pong: true;
   respondedAt: string;
 }
+
+/** Jobs de la cola `LOCATION_REMINDERS` — recordatorios de nota a hora fija (ADR-0030). */
+export const LOCATION_REMINDER_JOB_NAMES = {
+  NOTE_DUE: "note-due",
+} as const;
+
+export interface NoteReminderJobData {
+  userId: string;
+  reminderId: string;
+}
+
+export interface NoteReminderJobResult {
+  /** `false` cuando el recordatorio ya no estaba `pending` al disparar (cancelado/completado entre encolar y disparar) — no se notificó nada. */
+  delivered: boolean;
+}

@@ -17,6 +17,20 @@ export interface ReminderTriggerEvent {
   receivedAt: string;
 }
 
+/**
+ * Nota con hora fija que acaba de dispararse (ADR-0030) — llega por
+ * `LocationBroadcastService.notify(userId, "reminder:due", ...)`, el mismo
+ * `LocationReminder` completo que devuelve el backend (no un tipo aparte).
+ * Solo llega si el socket de `/location` está conectado en ese momento
+ * (todavía no hay FCM/APNs — ver MISSING_CAPABILITIES.md).
+ */
+export interface NoteReminderDueEvent {
+  id: string;
+  title: string | null;
+  message: string;
+  receivedAt: string;
+}
+
 export type AlertChannel = "visual_audio" | "voice_priority" | "default";
 /** Espejo de `CorridorSeverity` en el backend (ADR-0021) — relativo al buffer dinámico del momento, no a un valor fijo de metros. */
 export type CorridorSeverity = "info" | "warning" | "critical";
@@ -55,6 +69,7 @@ export interface CopilotoRealtimeState {
   geoStatus: GeoStatus;
   alerts: CorridorAlertEvent[];
   reminderTriggers: ReminderTriggerEvent[];
+  noteReminders: NoteReminderDueEvent[];
   ambulanceView: AmbulanceView;
 }
 
@@ -74,6 +89,7 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
   const [alerts, setAlerts] = useState<CorridorAlertEvent[]>([]);
   const [reminderTriggers, setReminderTriggers] = useState<ReminderTriggerEvent[]>([]);
+  const [noteReminders, setNoteReminders] = useState<NoteReminderDueEvent[]>([]);
   const [ambulanceView, setAmbulanceView] = useState<AmbulanceView>({ checked: false });
   const socketRef = useRef<Socket | null>(null);
 
@@ -126,6 +142,16 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
         }) => {
           if (cancelled) return;
           setAlerts((prev) =>
+            [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
+          );
+        },
+      );
+
+      socket.on(
+        "reminder:due",
+        (payload: { id: string; title: string | null; message: string }) => {
+          if (cancelled) return;
+          setNoteReminders((prev) =>
             [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
           );
         },
@@ -220,5 +246,13 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
     };
   }, []);
 
-  return { connectionStatus, connectionError, geoStatus, alerts, reminderTriggers, ambulanceView };
+  return {
+    connectionStatus,
+    connectionError,
+    geoStatus,
+    alerts,
+    reminderTriggers,
+    noteReminders,
+    ambulanceView,
+  };
 }

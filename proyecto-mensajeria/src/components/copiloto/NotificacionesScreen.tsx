@@ -6,7 +6,7 @@ import type { CopilotoRealtimeState } from "@/hooks/useCopilotoRealtime";
 
 interface FeedItem {
   key: string;
-  kind: "reminder" | "corridor";
+  kind: "reminder" | "corridor" | "note";
   title: string;
   subtitle: string;
   at: string;
@@ -44,6 +44,13 @@ export function NotificacionesScreen({
       subtitle: `Corredor de emergencia · a ${a.distanceMeters}m`,
       at: a.receivedAt,
     })),
+    ...realtime.noteReminders.map((n) => ({
+      key: `note-${n.id}-${n.receivedAt}`,
+      kind: "note" as const,
+      title: n.title?.trim() || n.message,
+      subtitle: "Recordatorio de nota",
+      at: n.receivedAt,
+    })),
   ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
@@ -72,6 +79,7 @@ export function NotificacionesScreen({
                   : "bg-primary/10 text-primary"
               }`}
             >
+              {/* "reminder" (geofence) y "note" (hora fija) comparten ícono/color — ambos son avisos de la libreta de notas, solo cambia el disparador. */}
               {item.kind === "corridor" ? (
                 <Ambulance className="size-4" />
               ) : (

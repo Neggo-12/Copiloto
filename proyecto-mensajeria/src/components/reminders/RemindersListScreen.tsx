@@ -3,6 +3,7 @@ import {
   ArchiveRestore,
   Bell,
   Check,
+  Clock,
   MapPin,
   NavigationArrow,
   Plus,
@@ -361,6 +362,12 @@ function ReminderRow({
                   : item.status === "cancelled"
                     ? "Cancelado"
                     : "Activo"}
+              </span>
+            )}
+            {item.kind === "note" && item.remindAt && (
+              <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] text-primary">
+                <Clock className="size-3.5" />
+                {formatChatTimestamp(item.remindAt)}
               </span>
             )}
           </span>

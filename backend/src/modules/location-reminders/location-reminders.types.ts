@@ -25,6 +25,12 @@ export interface LocationReminder {
   createdAt: string;
   triggeredAt: string | null;
   cancelledAt: string | null;
+  /**
+   * Hora fija de aviso (ADR-0030) — solo para `kind: "note"` (constraint
+   * `location_reminders_remind_at_only_for_note` en la base real). `null`
+   * significa que la nota no tiene recordatorio de hora fija programado.
+   */
+  remindAt: string | null;
 }
 
 /**

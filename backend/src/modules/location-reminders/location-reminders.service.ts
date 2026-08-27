@@ -29,6 +29,7 @@ interface LocationReminderRow {
   created_at: string;
   triggered_at: string | null;
   cancelled_at: string | null;
+  remind_at: string | null;
 }
 
 function toLocationReminder(row: LocationReminderRow): LocationReminder {
@@ -48,11 +49,12 @@ function toLocationReminder(row: LocationReminderRow): LocationReminder {
     createdAt: row.created_at,
     triggeredAt: row.triggered_at,
     cancelledAt: row.cancelled_at,
+    remindAt: row.remind_at,
   };
 }
 
 const REMINDER_COLUMNS =
-  "id, kind, title, message, latitude, longitude, radius_meters, label, status, is_task, completed_at, archived_at, created_at, triggered_at, cancelled_at";
+  "id, kind, title, message, latitude, longitude, radius_meters, label, status, is_task, completed_at, archived_at, created_at, triggered_at, cancelled_at, remind_at";
 
 export interface CreateLocationReminderInput {
   kind: "location";
@@ -68,6 +70,8 @@ export interface CreateNoteInput {
   message: string;
   title?: string | null;
   isTask?: boolean;
+  /** Hora fija de aviso (ADR-0030), opcional. Solo válido para notas. */
+  remindAt?: string | null;
 }
 
 export type CreateReminderInput = CreateLocationReminderInput | CreateNoteInput;
@@ -110,6 +114,7 @@ export class LocationRemindersService {
       label: string | null;
       title: string | null;
       is_task: boolean;
+      remind_at: string | null;
     } =
       input.kind === "location"
         ? {
@@ -122,6 +127,7 @@ export class LocationRemindersService {
             label: input.label ?? null,
             title: null,
             is_task: false,
+            remind_at: null,
           }
         : {
             user_id: userId,
@@ -133,6 +139,7 @@ export class LocationRemindersService {
             label: null,
             title: input.title ?? null,
             is_task: input.isTask ?? false,
+            remind_at: input.remindAt ?? null,
           };
 
     const { data, error } = await this.supabase
@@ -214,6 +221,64 @@ export class LocationRemindersService {
       this.logger.error(`markTriggered(${userId}, ${reminderId}): ${error.message}`);
       throw error;
     }
+  }
+
+  /**
+   * Equivalente de `markTriggered` para notas con hora fija (ADR-0030):
+   * mismo patrón idempotente (`WHERE status = 'pending'`), pero además
+   * `SELECT`+`.maybeSingle()` en una sola llamada — así
+   * `NoteReminderProcessor` sabe en un solo round-trip si debe notificar
+   * (fila devuelta) o no hacer nada (`null`: ya se había cancelado/borrado
+   * entre que BullMQ encoló el job y que disparó).
+   */
+  async markNoteReminderTriggered(userId: string, reminderId: string): Promise<LocationReminder | null> {
+    const { data, error } = await this.supabase
+      .from("location_reminders")
+      .update({ status: "triggered", triggered_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("id", reminderId)
+      .eq("kind", "note")
+      .eq("status", "pending")
+      // Defensa adicional (no solo `status`): completar o archivar una
+      // nota NO cambia su `status` (ese campo solo lo mueve el flujo de
+      // ubicación/geofence) — sin este filtro, una nota ya completada o
+      // archivada igual dispararía su aviso si el job de BullMQ no
+      // alcanzó a cancelarse a tiempo.
+      .is("completed_at", null)
+      .is("archived_at", null)
+      .select(REMINDER_COLUMNS)
+      .maybeSingle();
+
+    if (error) {
+      this.logger.error(`markNoteReminderTriggered(${userId}, ${reminderId}): ${error.message}`);
+      throw error;
+    }
+
+    return data ? toLocationReminder(data) : null;
+  }
+
+  /**
+   * Programa, reprograma o quita (`remindAt: null`) la hora fija de aviso de
+   * una nota. Devuelve la fila actualizada para que el llamador (el
+   * controller) pueda encolar/cancelar el job de BullMQ correspondiente sin
+   * una segunda consulta.
+   */
+  async scheduleReminder(userId: string, id: string, remindAt: string | null): Promise<LocationReminder> {
+    const { data, error } = await this.supabase
+      .from("location_reminders")
+      .update({ remind_at: remindAt })
+      .eq("user_id", userId)
+      .eq("id", id)
+      .eq("kind", "note")
+      .select(REMINDER_COLUMNS)
+      .single();
+
+    if (error) {
+      this.logger.error(`scheduleReminder(${userId}, ${id}): ${error.message}`);
+      throw error;
+    }
+
+    return toLocationReminder(data);
   }
 
   /** Cancela un recordatorio de ubicación pendiente (deja de evaluarse en el geofence). */

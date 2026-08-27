@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { SupabaseAuthGuard, type AuthenticatedRequest } from "../../common/guards/supabase-auth.guard";
 import { LocationRemindersService } from "./location-reminders.service";
+import { NoteReminderSchedulerService } from "./note-reminder-scheduler.service";
 import { ReminderCacheService } from "./reminder-cache.service";
 
 interface CreateReminderBody {
@@ -23,6 +24,17 @@ interface CreateReminderBody {
   longitude?: number;
   radiusMeters?: number;
   label?: string;
+  /** Solo aplica a `kind: "note"` (ADR-0030) — ISO 8601. */
+  remindAt?: string | null;
+}
+
+interface ScheduleReminderBody {
+  /** ISO 8601, o `null` para quitar la hora fija sin borrar la nota. */
+  remindAt: string | null;
+}
+
+function isValidIsoDate(value: string): boolean {
+  return !Number.isNaN(new Date(value).getTime());
 }
 
 interface UpdateTextBody {
@@ -58,6 +70,7 @@ export class LocationRemindersController {
   constructor(
     private readonly reminders: LocationRemindersService,
     private readonly cache: ReminderCacheService,
+    private readonly noteScheduler: NoteReminderSchedulerService,
   ) {}
 
   @Get()
@@ -100,12 +113,23 @@ export class LocationRemindersController {
       throw new BadRequestException('kind debe ser "location" o "note".');
     }
 
-    return this.reminders.create(request.userId, {
+    if (body.remindAt != null && !isValidIsoDate(body.remindAt)) {
+      throw new BadRequestException("remindAt debe ser una fecha ISO 8601 válida.");
+    }
+
+    const created = await this.reminders.create(request.userId, {
       kind: "note",
       message: body.message.trim(),
       title: body.title?.trim() || null,
       isTask: body.isTask ?? false,
+      remindAt: body.remindAt ?? null,
     });
+
+    if (created.remindAt) {
+      await this.noteScheduler.schedule(request.userId, created.id, created.remindAt);
+    }
+
+    return created;
   }
 
   @Patch(":id")
@@ -132,6 +156,12 @@ export class LocationRemindersController {
       throw new BadRequestException("completed debe ser booleano.");
     }
     await this.reminders.setTaskCompleted(request.userId, id, body.completed);
+    // Una tarea completada ya no debe avisar a su hora fija — el guard
+    // real (`completed_at IS NULL`) vive en `markNoteReminderTriggered`;
+    // esto solo evita dejar un job vivo sin necesidad en Redis.
+    if (body.completed) {
+      await this.noteScheduler.cancel(id);
+    }
     return { updated: true };
   }
 
@@ -141,14 +171,36 @@ export class LocationRemindersController {
       throw new BadRequestException("archived debe ser booleano.");
     }
     await this.reminders.setArchived(request.userId, id, body.archived);
+    if (body.archived) {
+      await this.noteScheduler.cancel(id);
+    }
     return { updated: true };
   }
 
-  /** Cancela un recordatorio de ubicación pendiente (no borra su historial). */
+  /** Programa, reprograma o quita (`remindAt: null`) la hora fija de aviso de una nota. */
+  @Patch(":id/remind-at")
+  async scheduleReminder(@Req() request: AuthenticatedRequest, @Param("id") id: string, @Body() body: ScheduleReminderBody) {
+    if (body.remindAt != null && !isValidIsoDate(body.remindAt)) {
+      throw new BadRequestException("remindAt debe ser una fecha ISO 8601 válida o null.");
+    }
+
+    const updated = await this.reminders.scheduleReminder(request.userId, id, body.remindAt ?? null);
+
+    if (updated.remindAt) {
+      await this.noteScheduler.schedule(request.userId, updated.id, updated.remindAt);
+    } else {
+      await this.noteScheduler.cancel(updated.id);
+    }
+
+    return updated;
+  }
+
+  /** Cancela un recordatorio de ubicación pendiente (no borra su historial). También quita el job de hora fija si la fila era una nota (no-op si no tenía). */
   @Delete(":id")
   async cancel(@Req() request: AuthenticatedRequest, @Param("id") id: string) {
     await this.reminders.cancel(request.userId, id);
     await this.cache.invalidate(request.userId);
+    await this.noteScheduler.cancel(id);
     return { cancelled: true };
   }
 
@@ -156,6 +208,7 @@ export class LocationRemindersController {
   @Delete(":id/permanent")
   async remove(@Req() request: AuthenticatedRequest, @Param("id") id: string) {
     await this.reminders.remove(request.userId, id);
+    await this.noteScheduler.cancel(id);
     return { removed: true };
   }
 }

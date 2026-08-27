@@ -3,6 +3,7 @@ import {
   ArchiveRestore,
   Bell,
   Check,
+  Clock,
   ListChecks,
   MapPin,
   Trash2,
@@ -12,6 +13,21 @@ import { Button } from "@/components/ui/button";
 import { DetailScreen } from "@/components/shared/DetailScreen";
 import { formatChatTimestamp } from "@/lib/format";
 import type { RemindersController } from "@/hooks/useReminders";
+
+/** `<input type="datetime-local">` trabaja en hora LOCAL sin timezone — estas dos funciones son la única conversión ida/vuelta que necesita este slice. */
+function toDatetimeLocalValue(iso: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromDatetimeLocalValue(value: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
 
 const STATUS_LABEL: Record<
   string,
@@ -143,6 +159,43 @@ export function RemindersEditorScreen({
                   Toca para cambiar el estado. También puedes marcarla desde la lista.
                 </p>
               </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-border bg-surface p-3">
+            <label className="flex items-center gap-3">
+              <Clock className="size-5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 text-[15px] font-medium">Avisarme a una hora</span>
+            </label>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="datetime-local"
+                defaultValue={toDatetimeLocalValue(item.remindAt)}
+                onBlur={(event) =>
+                  void controller.scheduleReminder(
+                    item.id,
+                    fromDatetimeLocalValue(event.target.value),
+                  )
+                }
+                className="min-w-0 flex-1 rounded-lg border border-input bg-background px-2 py-1.5 text-[14px] outline-none"
+              />
+              {item.remindAt && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void controller.scheduleReminder(item.id, null)}
+                >
+                  Quitar
+                </Button>
+              )}
+            </div>
+            {item.remindAt && item.status === "pending" && (
+              <p className="mt-2 text-[12px] text-muted-foreground">
+                Te avisamos el {formatChatTimestamp(item.remindAt)} si tienes la app abierta.
+              </p>
+            )}
+            {item.remindAt && item.status === "triggered" && (
+              <p className="mt-2 text-[12px] text-muted-foreground">Ya te avisamos.</p>
             )}
           </div>
 
