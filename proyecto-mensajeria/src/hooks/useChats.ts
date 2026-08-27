@@ -499,21 +499,87 @@ export function useChats() {
     [reconcileSentVoiceNote],
   );
 
+  /**
+   * Sube la foto/documento real a Storage y luego inserta el mensaje real —
+   * mismo patrón de reconciliación que `reconcileSentVoiceNote`. Si la
+   * subida falla, el mensaje optimista pasa a "failed" en vez de quedar
+   * "sending" para siempre (ADR-0031).
+   */
+  const reconcileSentAttachment = useCallback(
+    async (
+      tempId: MessageId,
+      chatId: ChatId,
+      kind: "image" | "document",
+      file: File,
+      replyToMessageId: MessageId | null,
+    ) => {
+      const mediaPath = await chatActions.uploadChatMedia(chatId, file);
+      const inserted = mediaPath
+        ? await chatActions.insertAttachmentMessage(
+            chatId,
+            CURRENT_USER_ID,
+            kind,
+            mediaPath,
+            file.name,
+            file.size,
+            replyToMessageId,
+          )
+        : null;
+      setState((prev) => {
+        if (!inserted) {
+          return {
+            ...prev,
+            messages: prev.messages.map((message) =>
+              message.id === tempId ? { ...message, status: "failed" as const } : message,
+            ),
+          };
+        }
+        const alreadyArrivedByRealtime = prev.messages.some(
+          (message) => message.id === inserted.id && message.id !== tempId,
+        );
+        if (alreadyArrivedByRealtime) {
+          return { ...prev, messages: prev.messages.filter((message) => message.id !== tempId) };
+        }
+        return {
+          ...prev,
+          messages: prev.messages.map((message) =>
+            message.id === tempId
+              ? ({ ...inserted, reactions: message.reactions } satisfies Message)
+              : message,
+          ),
+        };
+      });
+    },
+    [],
+  );
+
   const sendAttachment = useCallback(
-    (chatId: ChatId, kind: "image" | "document", fileName: string, fileSizeBytes?: number) => {
+    (
+      chatId: ChatId,
+      kind: "image" | "document",
+      file: File,
+      replyToMessageId: MessageId | null = null,
+    ) => {
+      const localUrl = URL.createObjectURL(file);
+      let tempId: MessageId | null = null;
       setState((prev) => {
         const result = chatActions.sendAttachmentMessage(
           prev,
           chatId,
           kind,
-          fileName,
-          fileSizeBytes,
+          localUrl,
+          file.name,
+          file.size,
+          replyToMessageId,
         );
-        simulateDelivery(result.message.id);
+        tempId = result.message.id;
         return result.state;
       });
+      if (tempId) {
+        void reconcileSentAttachment(tempId, chatId, kind, file, replyToMessageId);
+      }
     },
-    [simulateDelivery],
+    [reconcileSentAttachment],
   );
 
   /**

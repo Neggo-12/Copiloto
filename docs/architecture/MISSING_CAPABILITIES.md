@@ -91,9 +91,25 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   100% decorativos (sin permiso de micrófono, sin grabación ni reproducción
   real). Ahora graban con `MediaRecorder` real, suben al bucket privado
   `voice-notes` (ya existía desde ADR-0001, sin migración nueva) y reproducen
-  con `<audio>` real vía URL firmada. Fotos/documentos y grupos siguen siendo
-  simulación local en `proyecto-mensajeria` (no hay dato real en Supabase
-  todavía para esos tipos).
+  con `<audio>` real vía URL firmada. Grupos siguen siendo simulación local en
+  `proyecto-mensajeria`. Fotos/documentos: ver ADR-0031, resuelto abajo.
+- **Resuelto 2026-08-27 (ADR-0031):** fotos y documentos reales en
+  `proyecto-mensajeria` — antes el menú de adjuntar mandaba un nombre de
+  archivo inventado (`"foto-camara.jpg"`), sin archivo real ni subida.
+  Hallazgo de REUSE (mismo patrón que ADR-0024/0025/0029): el esquema
+  original ya tenía `messages.type` con `"image"`/`"document"`, las columnas
+  `media_file_name`/`media_file_size_bytes`, y hasta un bucket privado
+  `chat-media` con su RLS ya aplicada — nada de esto estaba conectado. Cero
+  migraciones nuevas. Ahora la cámara/galería/selector de documento abren un
+  `<input type="file">` real, el archivo se sube a `chat-media` y el mensaje
+  se inserta real (mismo patrón optimista+reconciliación que notas de voz).
+  Bug real encontrado y corregido ANTES de escribir el código de producción:
+  la policy real de `chat-media` espera la ruta `{chatId}/...` (sin el
+  prefijo `chat/` que sí usa `voice-notes`) — confirmado leyendo
+  `pg_policies` y verificado con una simulación real (con el prefijo
+  incorrecto, Postgres lanza `22P02: invalid input syntax for type uuid` al
+  castear el string `"chat"`). Ver
+  `docs/decisions/ADR-0031-real-photos-and-documents-messaging.md`.
 - **Resuelto 2026-08-19 (ADR-0025):** ubicación real (puntual y en vivo) en
   `proyecto-mensajeria` — antes `MOCK_CURRENT_LOCATION` era una coordenada
   fija y la "ubicación en vivo" nunca recibía posiciones nuevas. Ahora usa

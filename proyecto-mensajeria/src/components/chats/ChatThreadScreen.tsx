@@ -241,8 +241,10 @@ export function ChatThreadScreen({
             controller.sendVoiceNote(chatId, duration, waveform, blob, replyTo?.id ?? null);
             setReplyTo(null);
           },
-          onSendAttachment: (kind, fileName, size) =>
-            controller.sendAttachment(chatId, kind, fileName, size),
+          onSendAttachment: (kind, file) => {
+            controller.sendAttachment(chatId, kind, file, replyTo?.id ?? null);
+            setReplyTo(null);
+          },
           onShareCurrentLocation: () => {
             void controller.shareCurrentLocation(chatId, replyTo?.id ?? null);
             setReplyTo(null);

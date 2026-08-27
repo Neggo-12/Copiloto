@@ -30,12 +30,13 @@ export interface ChatsState {
 
 /* ------------------------------------------------------------------ */
 /* Backend real: contactos, chats 1-a-1, texto (2026-08-18), notas de voz */
-/* (ADR-0024) y ubicación puntual/en vivo (ADR-0025)                     */
+/* (ADR-0024), ubicación puntual/en vivo (ADR-0025) y fotos/documentos    */
+/* (ADR-0031)                                                            */
 /*                                                                      */
 /* Lo de aquí abajo sí habla con Supabase (tablas chats/chat_participants/ */
-/* messages/message_status/location_shares, bucket voice-notes) y es lo  */
-/* único que de verdad le llega al otro usuario en vivo. El resto del    */
-/* archivo (reacciones, fotos/documentos, grupos, silenciar/fijar/       */
+/* messages/message_status/location_shares, buckets voice-notes/         */
+/* chat-media) y es lo único que de verdad le llega al otro usuario en   */
+/* vivo. El resto del archivo (reacciones, grupos, silenciar/fijar/       */
 /* archivar, mensajes que desaparecen, reenviar/editar/borrar) sigue      */
 /* siendo simulación local sobre `ChatsState` — no se sincroniza todavía. */
 /* Ver TECHNICAL_DEBT.md para el detalle de qué falta y por qué se dejó   */
@@ -570,6 +571,80 @@ export async function insertVoiceMessage(
     .single();
   if (error || !data) return null;
   return mapMessageRow(data as MessageRow);
+}
+
+/**
+ * Sube una foto o documento real al bucket privado `chat-media` (política
+ * RLS ya existente desde el esquema original, solo participantes del chat,
+ * ver ADR-0001/ADR-0031). **Ojo**: la convención de carpeta de este bucket
+ * es `{chatId}/...` — SIN el prefijo `chat/` que sí usa `voice-notes`
+ * (`chat/{chatId}/...`). Se confirmó leyendo la policy real
+ * (`chat_media_participant_insert`, que castea directo
+ * `(storage.foldername(name))[1]` a uuid) antes de escribir este código —
+ * con el prefijo `chat/` la política intentaría convertir el string
+ * literal `"chat"` a uuid y fallaría con un error real de Postgres
+ * (`22P02: invalid input syntax for type uuid`), confirmado con una
+ * simulación real antes de corregir la ruta.
+ */
+export async function uploadChatMedia(chatId: ChatId, file: File): Promise<string | null> {
+  const extension = file.name.includes(".") ? file.name.split(".").pop() : undefined;
+  const path = `${chatId}/${crypto.randomUUID()}${extension ? `.${extension}` : ""}`;
+  const { error } = await supabase.storage
+    .from("chat-media")
+    .upload(path, file, { contentType: file.type || "application/octet-stream" });
+  if (error) {
+    console.error("[chats] uploadChatMedia: no se pudo subir el archivo", error);
+    return null;
+  }
+  return path;
+}
+
+/** Inserta un mensaje real de foto/documento (archivo ya subido a Storage); le llega al otro usuario por Realtime. */
+export async function insertAttachmentMessage(
+  chatId: ChatId,
+  senderId: UserId,
+  kind: "image" | "document",
+  mediaPath: string,
+  fileName: string,
+  fileSizeBytes: number,
+  replyToMessageId: MessageId | null = null,
+): Promise<Message | null> {
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      chat_id: chatId,
+      sender_id: senderId,
+      type: kind,
+      media_url: mediaPath,
+      media_file_name: fileName,
+      media_file_size_bytes: fileSizeBytes,
+      reply_to_id: replyToMessageId,
+    })
+    .select(MESSAGE_COLUMNS)
+    .single();
+  if (error || !data) return null;
+  return mapMessageRow(data as MessageRow);
+}
+
+const CHAT_MEDIA_SIGNED_URL_TTL_SECONDS = 3600;
+
+/**
+ * Resuelve una URL reproducible/descargable para un adjunto de chat (foto,
+ * documento o nota de voz) — pasa directo si ya es `blob:`/`http` (burbuja
+ * optimista, todavía no reconciliada), o firma la ruta real del bucket
+ * privado bajo demanda si no. Mismo patrón que `VoiceNotePlayer`, factorizado
+ * aquí porque ahora lo usan tres tipos de adjunto, no solo voz.
+ */
+export async function resolveChatMediaUrl(
+  sourceUrl: string,
+  bucket: "chat-media" | "voice-notes" = "chat-media",
+): Promise<string | null> {
+  if (sourceUrl.startsWith("blob:") || sourceUrl.startsWith("http")) return sourceUrl;
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(sourceUrl, CHAT_MEDIA_SIGNED_URL_TTL_SECONDS);
+  if (error || !data) return null;
+  return data.signedUrl;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1110,19 +1185,24 @@ export function sendVoiceNote(
   });
 }
 
-/** Enviar imagen o documento (selección simulada en esta fase). */
+/**
+ * Burbuja optimista de foto/documento — `localUrl` es un
+ * `URL.createObjectURL` del archivo real recién elegido (visible/abrible de
+ * inmediato, antes de que termine de subirse a Storage). Ver
+ * `reconcileSentAttachment` en `useChats.ts` para el envío real (ADR-0031),
+ * mismo patrón que `sendVoiceNote`/ADR-0024.
+ */
 export function sendAttachmentMessage(
   state: ChatsState,
   chatId: ChatId,
   kind: "image" | "document",
+  localUrl: string,
   fileName: string,
-  fileSizeBytes?: number,
+  fileSizeBytes: number,
+  replyToMessageId: MessageId | null = null,
 ): { state: ChatsState; message: Message } {
-  const attachment: MessageAttachment =
-    fileSizeBytes === undefined
-      ? { kind, url: "#", fileName }
-      : { kind, url: "#", fileName, fileSizeBytes };
-  return sendMessage(state, { chatId, kind, attachment });
+  const attachment: MessageAttachment = { kind, url: localUrl, fileName, fileSizeBytes };
+  return sendMessage(state, { chatId, kind, attachment, replyToMessageId });
 }
 
 /** Reenviar un mensaje existente a otro chat. */

@@ -3,13 +3,13 @@ import {
   CheckCheck,
   Clock,
   FileText,
-  ImageIcon,
   CornerUpLeft,
   AlertCircle,
   MapPin,
+  Spinner,
   Timer,
 } from "@/components/shared/icons";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { VoiceNotePlayer } from "@/components/chats/VoiceNotePlayer";
 import { formatClock, formatFileSize } from "@/lib/format";
 import {
@@ -17,6 +17,7 @@ import {
   isLiveLocationActive,
   openLocationInMaps,
   previewForMessage,
+  resolveChatMediaUrl,
   summarizeReactions,
 } from "@/lib/actions/chats";
 import mapThumbnail from "@/assets/map-thumbnail.jpg";
@@ -71,6 +72,99 @@ function LocationCard({ message }: { message: Message }) {
             ? `Termina en ${formatLiveRemaining(message)}`
             : "Ubicación en vivo finalizada"
           : "Toca para abrir en Google Maps"}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Foto real de un mensaje de tipo `image` (ADR-0031) — `message.attachment.url`
+ * puede ser un `blob:` (burbuja optimista, recién elegida, todavía subiendo)
+ * o la ruta del bucket privado `chat-media` (ya reconciliada), resuelta a una
+ * URL firmada al montar. A diferencia de la nota de voz (que resuelve al
+ * tocar play), la foto se resuelve de una vez porque el punto es verla sin
+ * un paso extra.
+ */
+function ChatImage({ message }: { message: Message }) {
+  const sourceUrl = message.attachment?.url ?? null;
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedUrl(null);
+    setFailed(false);
+    if (!sourceUrl || sourceUrl === "#") return;
+    void resolveChatMediaUrl(sourceUrl).then((url) => {
+      if (cancelled) return;
+      if (url) setResolvedUrl(url);
+      else setFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceUrl]);
+
+  return (
+    <div className="w-48">
+      {resolvedUrl ? (
+        <img
+          src={resolvedUrl}
+          alt={message.attachment?.fileName ?? "Imagen"}
+          loading="lazy"
+          className="h-40 w-full rounded-xl border border-border/50 object-cover"
+        />
+      ) : (
+        <div className="grid h-32 place-items-center rounded-xl border border-border/50 bg-secondary">
+          {failed ? (
+            <AlertCircle className="size-6 text-destructive" />
+          ) : (
+            <Spinner className="size-6 animate-spin text-muted-foreground" />
+          )}
+        </div>
+      )}
+      {message.attachment?.fileName && (
+        <p className="mt-1 truncate text-[12px] opacity-70">{message.attachment.fileName}</p>
+      )}
+    </div>
+  );
+}
+
+/** Documento real (ADR-0031) — resuelve una URL firmada bajo demanda al tocar, y la abre en una pestaña nueva (mismo patrón lazy que la nota de voz). */
+function DocumentAttachment({ message }: { message: Message }) {
+  const [resolving, setResolving] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function openDocument() {
+    const sourceUrl = message.attachment?.url;
+    if (!sourceUrl || sourceUrl === "#") return;
+    setFailed(false);
+    setResolving(true);
+    const url = await resolveChatMediaUrl(sourceUrl);
+    setResolving(false);
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      setFailed(true);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void openDocument()}
+      className="press flex w-52 items-center gap-2.5 text-left"
+    >
+      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-foreground/8">
+        {resolving ? <Spinner className="size-5 animate-spin" /> : <FileText className="size-5" />}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-[14px] font-medium">
+          {message.attachment?.fileName}
+        </span>
+        <span className="block font-mono text-[12px] opacity-70">
+          {failed ? "No se pudo abrir" : formatFileSize(message.attachment?.fileSizeBytes)}
+        </span>
       </span>
     </button>
   );
@@ -220,28 +314,11 @@ export function MessageBubble({
               sourceUrl={message.attachment.url !== "#" ? message.attachment.url : null}
             />
           ) : message.kind === "image" ? (
-            <div className="w-48">
-              <div className="grid h-32 place-items-center rounded-xl border border-border/50 bg-secondary">
-                <ImageIcon className="size-7 text-muted-foreground" />
-              </div>
-              <p className="mt-1 truncate text-[12px] opacity-70">{message.attachment?.fileName}</p>
-            </div>
+            <ChatImage message={message} />
           ) : message.kind === "location" ? (
             <LocationCard message={message} />
           ) : message.kind === "document" ? (
-            <div className="flex w-52 items-center gap-2.5">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-foreground/8">
-                <FileText className="size-5" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-[14px] font-medium">
-                  {message.attachment?.fileName}
-                </span>
-                <span className="block font-mono text-[12px] opacity-70">
-                  {formatFileSize(message.attachment?.fileSizeBytes)}
-                </span>
-              </span>
-            </div>
+            <DocumentAttachment message={message} />
           ) : (
             <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">
               {message.body}

@@ -10,7 +10,8 @@ import {
   Trash2,
   X,
 } from "@/components/shared/icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { LIVE_LOCATION_OPTIONS, previewForMessage } from "@/lib/actions/chats";
 import type { LiveLocationDuration } from "@/lib/actions/chats";
 import { formatDuration } from "@/lib/format";
@@ -21,7 +22,8 @@ import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 export interface ComposerHandlers {
   onSendText: (body: string) => void;
   onSendVoiceNote: (durationSeconds: number, waveform: number[], blob: Blob) => void;
-  onSendAttachment: (kind: "image" | "document", fileName: string, size?: number) => void;
+  /** Foto o documento REAL elegido por el usuario (cámara/galería/archivo) — ver ADR-0031. */
+  onSendAttachment: (kind: "image" | "document", file: File) => void;
   /** Comparte la ubicación actual real (GPS del dispositivo — ADR-0025). */
   onShareCurrentLocation: () => void;
   /** Inicia la ubicación en tiempo real con la duración elegida — GPS real (ADR-0025). */
@@ -55,10 +57,23 @@ export function MessageComposer({
     setAttachOpen(false);
   };
   const recorder = useVoiceRecorder();
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setDraft(editing ? editing.body : "");
   }, [editing]);
+
+  /** El input queda vacío después de leer el archivo, para poder elegir el mismo archivo otra vez más tarde. */
+  function handleFileChosen(kind: "image" | "document") {
+    return (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      handlers.onSendAttachment(kind, file);
+    };
+  }
 
   const hasText = draft.trim().length > 0;
   const isRecording = recorder.isRecording;
@@ -81,6 +96,29 @@ export function MessageComposer({
 
   return (
     <div className="safe-bottom shrink-0 border-t border-border/70 bg-surface/95 px-3 pt-2 backdrop-blur">
+      {/* Inputs reales de archivo — ocultos, activados por los botones del menú de adjuntar (ADR-0031). Siempre montados para que los refs funcionen sin importar si el menú está abierto. */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileChosen("image")}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChosen("image")}
+      />
+      <input
+        ref={documentInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileChosen("document")}
+      />
+
       {(replyTo || editing) && (
         <div className="mb-2 flex items-start gap-2 rounded-2xl border-l-2 border-primary bg-secondary px-3 py-2">
           <div className="min-w-0 flex-1">
@@ -108,17 +146,17 @@ export function MessageComposer({
             {
               label: "Cámara",
               icon: Camera,
-              run: () => handlers.onSendAttachment("image", "foto-camara.jpg"),
+              run: () => cameraInputRef.current?.click(),
             },
             {
               label: "Galería",
               icon: ImageIcon,
-              run: () => handlers.onSendAttachment("image", "galeria-01.jpg"),
+              run: () => galleryInputRef.current?.click(),
             },
             {
               label: "Documento",
               icon: FileText,
-              run: () => handlers.onSendAttachment("document", "documento.pdf", 312_000),
+              run: () => documentInputRef.current?.click(),
             },
             { label: "Ubicación", icon: MapPin, run: null },
           ].map(({ label, icon: Icon, run }) => (
