@@ -21,6 +21,9 @@ proyecto-mensajeria/.workspace/
 *.env
 *.env.local
 .env*.local
+.env.save
+.env.bak
+.env.*.bak
 
 # limpieza pendiente (no se puede borrar desde el puente al dispositivo)
 _to_delete/

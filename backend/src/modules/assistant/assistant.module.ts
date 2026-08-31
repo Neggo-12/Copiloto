@@ -8,6 +8,8 @@ import { RouteSessionModule } from "../route-session/route-session.module";
 import { VehiclesModule } from "../vehicles/vehicles.module";
 import { AssistantController } from "./assistant.controller";
 import { AssistantToolsService } from "./assistant-tools.service";
+import { AssistantVoiceGateway } from "./assistant-voice.gateway";
+import { GeminiLiveService } from "./gemini-live.service";
 import { ActivateEmergencyCorridorTool } from "./tools/activate-emergency-corridor.tool";
 import { CalculateRouteTool } from "./tools/calculate-route.tool";
 import { CreateLocationReminderTool } from "./tools/create-location-reminder.tool";
@@ -31,6 +33,8 @@ import { SetDrivingModeTool } from "./tools/set-driving-mode.tool";
   controllers: [AssistantController],
   providers: [
     AssistantToolsService,
+    GeminiLiveService,
+    AssistantVoiceGateway,
     CreateLocationReminderTool,
     CalculateRouteTool,
     ActivateEmergencyCorridorTool,

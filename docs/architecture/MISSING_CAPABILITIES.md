@@ -110,6 +110,35 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   incorrecto, Postgres lanza `22P02: invalid input syntax for type uuid` al
   castear el string `"chat"`). Ver
   `docs/decisions/ADR-0031-real-photos-and-documents-messaging.md`.
+- **Resuelto 2026-08-27 (ADR-0032):** rate limiting real en `backend/` —
+  antes ningún endpoint tenía límite de peticiones. `RateLimitModule`
+  (`@nestjs/throttler` + `@nest-lab/throttler-storage-redis`, guard global)
+  usa el mismo Redis compartido de siempre como storage — no el
+  almacenamiento en memoria por defecto, que se desincroniza entre
+  instancias. Límite por defecto: 60/min por usuario; `NavigationController`
+  (proxy de Google Maps, dinero real) y `AssistantController` en 20/min,
+  `SimulationController` (cómputo pesado) en 5/min, `GET /health` sin
+  límite. Agrupado por usuario (`sub` del JWT, decodificado sin verificar
+  firma solo como clave de bucketing — la verificación real la sigue
+  haciendo `SupabaseAuthGuard`), no por IP — a propósito, para no penalizar
+  a varios usuarios reales detrás del mismo NAT de operador celular en el
+  piloto (Fase 8). Ver `docs/decisions/ADR-0032-rate-limiting.md`.
+- **Resuelto 2026-08-27 (ADR-0033):** Web Push real (primer slice) — antes
+  no había ningún proveedor de notificaciones push, gap documentado en
+  ADR-0015/ADR-0030 (el aviso solo llegaba con la app abierta y el socket
+  conectado). El proyecto hoy es solo web (Vite, sin Capacitor/app nativa
+  todavía), así que este slice cubre Web Push (FCM en modo web + VAPID), no
+  FCM/APNs nativos — se revisará junto con el empaquetado Android cuando
+  ese exista. `WebPushService` (adapter, `web-push` + tabla real
+  `push_subscriptions` con RLS dueño-únicamente) conectado como segundo
+  canal (además del socket de siempre) en `NoteReminderProcessor` — respeta
+  `profiles.notification_settings` (ahora persistido de verdad, antes solo
+  vivía en memoria de la sesión de `proyecto-mensajeria`). Deliberadamente
+  fuera de alcance de este slice: push para mensajes nuevos de chat
+  (Supabase-directo, sin pasar por este backend por diseño de ADR-0018—
+  necesitaría un trigger/Edge Function aparte) y alertas del Emergency
+  Corridor (Fase 3, decisión de si deben poder silenciarse pendiente). Ver
+  `docs/decisions/ADR-0033-web-push-notifications.md`.
 - **Resuelto 2026-08-19 (ADR-0025):** ubicación real (puntual y en vivo) en
   `proyecto-mensajeria` — antes `MOCK_CURRENT_LOCATION` era una coordenada
   fija y la "ubicación en vivo" nunca recibía posiciones nuevas. Ahora usa
@@ -141,9 +170,10 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   en `LocationModule`) conectados por nombre de cola, no por import.
   `PATCH /location-reminders/:id/remind-at` programa/reprograma/quita.
   Sigue sin construir: aviso por voz (`create_reminder` dictado, depende del
-  asistente de voz, fuera de alcance por decisión del fundador) y push real
-  (FCM/APNs, Fase 5) — sin eso, el aviso solo llega con la app abierta y el
-  socket `/location` conectado. Ver
+  asistente de voz, fuera de alcance por decisión del fundador). Push real
+  ya no es un gap — ver ADR-0033, resuelto arriba: desde ese slice el aviso
+  también llega por Web Push si la persona activó notificaciones del
+  navegador, aunque no tenga la app abierta. Ver
   `docs/decisions/ADR-0030-bullmq-fixed-time-note-reminders.md`.
 
 ## Location / Maps / Navigation
@@ -199,8 +229,13 @@ con políticas (ver `docs/decisions/ADR-0001-esquema-backend.md` y
   del disparo confirmada con conteo de filas) y un smoke test real contra
   Redis local (13/13 casos). Pendiente: integración HTTP/WebSocket de
   punta a punta con JWT real (mismo límite documentado desde ADR-0009),
-  notificación push cuando la app está cerrada (Fase 5), recordatorios
-  recurrentes (no pedidos todavía). **Corrección:** el dictado por voz de
+  recordatorios recurrentes (no pedidos todavía). Notificación push cuando
+  la app está cerrada ya no es un gap para notas con hora fija (ver
+  ADR-0033) — para recordatorios por geofence (`kind: "location"`), el
+  disparo sigue viviendo en el ack del socket que reporta la ubicación
+  (`GeofenceTriggerService`, ver comentario en ese archivo), así que Web
+  Push todavía no está conectado ahí; se puede extender con el mismo
+  `WebPushService` si se necesita. **Corrección:** el dictado por voz de
   este tipo de recordatorio NO estaba pendiente — `create_location_reminder`
   (ADR-0016) ya lo cubre desde ese slice; la nota anterior aquí lo daba por
   "futuro" por error, corregido el 2026-08-19.
