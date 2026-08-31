@@ -8,6 +8,7 @@ import {
   type NoteReminderJobResult,
 } from "../../common/queue/queue-names";
 import { LocationRemindersService } from "../location-reminders/location-reminders.service";
+import { WebPushService } from "../push-notifications/web-push.service";
 import { LocationBroadcastService } from "./location-broadcast.service";
 
 /**
@@ -21,12 +22,17 @@ import { LocationBroadcastService } from "./location-broadcast.service";
  * socket que reportó la ubicación, aquí NO hay una petición del cliente en
  * curso en el momento en que el job dispara: es un evento puramente
  * server-initiated, exactamente el caso para el que se construyó
- * `LocationBroadcastService.notify()`. Limitación honesta: solo llega si
- * el usuario tiene un socket conectado al namespace `/location` en ese
- * momento — no hay proveedor FCM/APNs todavía (gap documentado, ver
- * MISSING_CAPABILITIES.md), así que sin socket activo el aviso se pierde
- * en silencio (la nota queda `triggered` en la base, visible al abrir la
- * app, pero no llega push).
+ * `LocationBroadcastService.notify()`.
+ *
+ * Desde ADR-0033 también manda un Web Push real (`WebPushService`) además
+ * del evento de socket de siempre — así el aviso llega aunque la persona
+ * no tenga la app abierta en ese momento (antes se perdía en silencio si
+ * no había un socket conectado al namespace `/location`; gap que quedaba
+ * documentado en MISSING_CAPABILITIES.md, ya resuelto para quien active
+ * notificaciones del navegador). Sigue habiendo un caso honesto sin
+ * cobertura: quien nunca activó notificaciones del navegador (o usa uno
+ * sin soporte de Push API) solo ve el recordatorio al volver a abrir la
+ * app — no hay nada más que hacer ahí sin una app nativa.
  */
 @Processor(QUEUE_NAMES.LOCATION_REMINDERS)
 export class NoteReminderProcessor extends WorkerHost {
@@ -35,6 +41,7 @@ export class NoteReminderProcessor extends WorkerHost {
   constructor(
     private readonly reminders: LocationRemindersService,
     private readonly broadcast: LocationBroadcastService,
+    private readonly webPush: WebPushService,
   ) {
     super();
   }
@@ -55,6 +62,11 @@ export class NoteReminderProcessor extends WorkerHost {
     }
 
     this.broadcast.notify(userId, "reminder:due", reminder);
+    void this.webPush.sendToUser(userId, "noteReminders", {
+      title: reminder.title ?? "Recordatorio",
+      body: reminder.message,
+      data: { url: "/notas" },
+    });
     return { delivered: true };
   }
 }

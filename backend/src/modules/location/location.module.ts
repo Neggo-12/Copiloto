@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { LocationRemindersModule } from "../location-reminders/location-reminders.module";
+import { PushNotificationsModule } from "../push-notifications/push-notifications.module";
 import { RouteSessionModule } from "../route-session/route-session.module";
 import { LocationBroadcastService } from "./location-broadcast.service";
 import { LocationGateway } from "./location.gateway";
@@ -17,9 +18,13 @@ import { NoteReminderProcessor } from "./note-reminder.processor";
  * `LocationRemindersModule` (junto a `NoteReminderSchedulerService`, quien
  * la encola); no hace falta volver a registrarla aquí — `@Processor` la
  * encuentra por nombre en todo el contenedor de Nest, no por import.
+ *
+ * `PushNotificationsModule` (ADR-0033) se importa aquí porque
+ * `NoteReminderProcessor` ahora también manda un Web Push real, además del
+ * evento de socket de siempre — mismo motivo que `LocationRemindersModule`.
  */
 @Module({
-  imports: [RouteSessionModule, LocationRemindersModule],
+  imports: [RouteSessionModule, LocationRemindersModule, PushNotificationsModule],
   controllers: [LocationController],
   providers: [LocationGateway, LocationStateService, LocationBroadcastService, NoteReminderProcessor],
   exports: [LocationStateService, LocationBroadcastService],

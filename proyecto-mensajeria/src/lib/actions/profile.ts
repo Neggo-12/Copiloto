@@ -136,6 +136,43 @@ export async function uploadAndSaveAvatar(userId: UserId, file: File): Promise<s
 }
 
 /**
+ * Trae la preferencia real de notificaciones (`profiles.notification_settings`,
+ * jsonb — ADR-0033). Antes de esto, `NotificationsScreen` solo tocaba estado
+ * en memoria de la sesión: los interruptores se "olvidaban" al recargar,
+ * mismo síntoma que tenía el nombre/"acerca de" antes de ADR-0028.
+ */
+export async function fetchNotificationSettingsRemote(
+  userId: UserId,
+): Promise<NotificationSettings | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("notification_settings")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error || !data) {
+    if (error) console.error("[profile] fetchNotificationSettingsRemote: no se pudo leer", error);
+    return null;
+  }
+  return (data.notification_settings as NotificationSettings | null) ?? null;
+}
+
+/** Guarda la preferencia real de notificaciones — RLS ya exige `id = auth.uid()` (misma política que nombre/"acerca de"). */
+export async function updateNotificationSettingsRemote(
+  userId: UserId,
+  settings: NotificationSettings,
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ notification_settings: settings })
+    .eq("id", userId);
+  if (error) {
+    console.error("[profile] updateNotificationSettingsRemote: no se pudo guardar", error);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Marca "visto por última vez ahora" real (`profiles.last_seen_at`, ADR-0029)
  * — mismo patrón de auto-guardado silencioso que `updateProfileRemote`, sin
  * bloquear ni avisar a la UI si falla (no es crítico, se reintenta solo en

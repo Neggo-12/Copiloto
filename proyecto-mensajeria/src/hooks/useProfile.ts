@@ -1,6 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as profileActions from "@/lib/actions/profile";
 import type { ProfilePatch, ProfileState } from "@/lib/actions/profile";
+import {
+  getPushSupportStatus,
+  subscribeToPush,
+  unsubscribeFromPush,
+  type PushSupportStatus,
+} from "@/lib/actions/push";
 import { MOCK_DEVICES } from "@/lib/domain/mock-data";
 import type {
   ConnectedDevice,
@@ -33,7 +39,12 @@ export interface ProfileController {
   revokeDevice: (deviceId: DeviceId) => void;
   setTwoStepVerification: (enabled: boolean) => void;
   setPrivacyAudience: (key: keyof PrivacySettings, audience: PrivacyAudience) => void;
+  /** Optimista local + guardado real en `profiles.notification_settings` (ADR-0033). */
   setNotificationEnabled: (key: keyof NotificationSettings, enabled: boolean) => void;
+  /** Estado real de permiso/soporte de Web Push en este navegador (ADR-0033) — no hay nada simulado acá. */
+  pushStatus: PushSupportStatus;
+  /** Pide permiso real y suscribe (o da de baja) este navegador a Web Push. */
+  togglePushSubscription: () => Promise<void>;
   signOut: () => void;
 }
 
@@ -46,6 +57,22 @@ export interface ProfileController {
 export function useProfile(): ProfileController {
   const { currentUser, updateCurrentUser, signOut } = useAppStore();
   const [state, setState] = useState<ProfileState>(INITIAL_STATE);
+  const [pushStatus, setPushStatus] = useState<PushSupportStatus>(() => getPushSupportStatus());
+
+  // Hidrata la preferencia real de notificaciones (antes quedaba siempre en
+  // el default en memoria, ver comentario de `fetchNotificationSettingsRemote`).
+  useEffect(() => {
+    const userId = currentUser?.id;
+    if (!userId) return;
+    let cancelled = false;
+    profileActions.fetchNotificationSettingsRemote(userId).then((settings) => {
+      if (cancelled || !settings) return;
+      setState((prev) => ({ ...prev, notificationSettings: settings }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id]);
 
   const updateProfile = useCallback(
     (patch: ProfilePatch) => {
@@ -102,10 +129,32 @@ export function useProfile(): ProfileController {
 
   const setNotificationEnabled = useCallback(
     (key: keyof NotificationSettings, enabled: boolean) => {
-      setState((prev) => profileActions.setNotificationEnabled(prev, key, enabled));
+      // Optimista primero, igual que `updateProfile` — el guardado real no
+      // debe bloquear el interruptor de la UI.
+      let nextSettings: NotificationSettings | null = null;
+      setState((prev) => {
+        const next = profileActions.setNotificationEnabled(prev, key, enabled);
+        nextSettings = next.notificationSettings;
+        return next;
+      });
+      const userId = currentUser?.id;
+      if (!userId || !nextSettings) return;
+      void profileActions.updateNotificationSettingsRemote(userId, nextSettings);
     },
-    [],
+    [currentUser?.id],
   );
+
+  const togglePushSubscription = useCallback(async () => {
+    const userId = currentUser?.id;
+    if (!userId) return;
+    if (pushStatus === "granted") {
+      await unsubscribeFromPush();
+      setPushStatus(getPushSupportStatus());
+      return;
+    }
+    const result = await subscribeToPush(userId);
+    setPushStatus(result);
+  }, [currentUser?.id, pushStatus]);
 
   return {
     state,
@@ -120,6 +169,8 @@ export function useProfile(): ProfileController {
     setTwoStepVerification,
     setPrivacyAudience,
     setNotificationEnabled,
+    pushStatus,
+    togglePushSubscription,
     signOut,
   };
 }
