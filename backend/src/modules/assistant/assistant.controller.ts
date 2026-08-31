@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { SupabaseAuthGuard, type AuthenticatedRequest } from "../../common/guards/supabase-auth.guard";
 import { AssistantToolsService } from "./assistant-tools.service";
 
@@ -29,6 +30,8 @@ export class AssistantController {
     return this.tools.list();
   }
 
+  /** Rate limit más estricto que el default global (20/min en vez de 60/min): ejecutar una tool puede disparar acciones reales de dominio (Fase 6), no es una simple lectura. */
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("tools/:toolName/execute")
   async executeTool(@Req() request: AuthenticatedRequest, @Param("toolName") toolName: string, @Body() body: ExecuteToolBody) {
     return this.tools.execute(toolName, { userId: request.userId, confirmed: body?.confirmed }, body?.args ?? {});

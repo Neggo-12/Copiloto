@@ -4,6 +4,7 @@ import { validateEnv } from "./config/env.validation";
 import { SupabaseModule } from "./common/supabase/supabase.module";
 import { RedisModule } from "./common/redis/redis.module";
 import { QueueModule } from "./common/queue/queue.module";
+import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { GoogleMapsModule } from "./common/google-maps/google-maps.module";
 import { HealthController } from "./modules/health/health.controller";
 import { EmergencyModule } from "./modules/emergency/emergency.module";
@@ -25,6 +26,7 @@ import { SimulationModule } from "./modules/simulation/simulation.module";
     SupabaseModule,
     RedisModule,
     QueueModule,
+    RateLimitModule,
     GoogleMapsModule,
     EmergencyModule,
     SystemQueueModule,

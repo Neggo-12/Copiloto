@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, Inject, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { AuthenticatedRequest } from "../../common/guards/supabase-auth.guard";
 import { SupabaseAuthGuard } from "../../common/guards/supabase-auth.guard";
 import { LocationStateService } from "../location/location-state.service";
@@ -23,9 +24,14 @@ interface StartRouteSessionBody {
  * (`RouteSessionService`, `LocationStateService`), no aquí. Protegidos con
  * `SupabaseAuthGuard` porque cada llamada de routing/geocoding tiene costo
  * real en Google Maps Platform — nunca exponerlos sin autenticación.
+ *
+ * Rate limit más estricto que el default global (20/min en vez de 60/min,
+ * ver `RateLimitModule`): cada llamada aquí es dinero real gastado en
+ * Google Maps Platform, no solo cómputo interno.
  */
 @Controller("navigation")
 @UseGuards(SupabaseAuthGuard)
+@Throttle({ default: { limit: 20, ttl: 60_000 } })
 export class NavigationController {
   constructor(
     @Inject(ROUTING_PROVIDER) private readonly routingProvider: RoutingProvider,

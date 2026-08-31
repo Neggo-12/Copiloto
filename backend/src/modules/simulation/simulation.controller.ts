@@ -1,4 +1,5 @@
 import { Controller, NotFoundException, Param, Post, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { SupabaseAuthGuard } from "../../common/guards/supabase-auth.guard";
 import { SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES } from "./scenarios/scenario-1-single-ambulance-10-vehicles";
 import { SimulationEngineService } from "./simulation.engine";
@@ -23,6 +24,8 @@ const SCENARIOS: Record<string, SimulationScenario> = {
 export class SimulationController {
   constructor(private readonly engine: SimulationEngineService) {}
 
+  /** Rate limit mucho más estricto que el default global (5/min en vez de 60/min): cada corrida hace múltiples escrituras reales a Redis, no es una lectura barata. */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("scenarios/:name/run")
   async run(@Param("name") name: string) {
     const scenario = SCENARIOS[name];
