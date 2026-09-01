@@ -198,6 +198,9 @@ export async function updateContactDisplayName(
 ): Promise<{ error: string | null }> {
   const name = displayName.trim();
   if (!name) return { error: "El nombre no puede quedar vacío." };
-  const { error } = await supabase.from("contacts").update({ display_name: name }).eq("id", contactId);
+  const { error } = await supabase
+    .from("contacts")
+    .update({ display_name: name })
+    .eq("id", contactId);
   return { error: error?.message ?? null };
 }

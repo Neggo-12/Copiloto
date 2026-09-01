@@ -89,7 +89,9 @@ export function useContacts(): ContactsController {
     if (!result.error) {
       const trimmed = displayName.trim();
       setContacts((prev) =>
-        prev.map((contact) => (contact.id === contactId ? { ...contact, displayName: trimmed } : contact)),
+        prev.map((contact) =>
+          contact.id === contactId ? { ...contact, displayName: trimmed } : contact,
+        ),
       );
     }
     return result;
