@@ -28,7 +28,7 @@ export function RemindersTab({ tabBar }: { tabBar: ReactNode }) {
             !item.message.trim() &&
             !item.isTask
           ) {
-            void controller.removeNote(item.id);
+            void controller.remove(item.id);
           }
           setOpenId(null);
         }}

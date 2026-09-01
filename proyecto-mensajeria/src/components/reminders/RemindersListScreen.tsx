@@ -253,12 +253,9 @@ export function RemindersListScreen({
                       onAction: () => void controller.toggleArchived(item.id),
                     },
                     {
-                      label: item.kind === "location" ? "Cancelar" : "Eliminar",
+                      label: "Eliminar",
                       icon: <Trash2 className="size-5" />,
-                      onAction: () =>
-                        void (item.kind === "location"
-                          ? controller.cancelLocation(item.id)
-                          : controller.removeNote(item.id)),
+                      onAction: () => void controller.remove(item.id),
                       variant: "destructive",
                     },
                   ]}

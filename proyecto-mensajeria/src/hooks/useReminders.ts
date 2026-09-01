@@ -73,10 +73,17 @@ export interface RemindersController {
   setIsTask: (id: string, isTask: boolean) => Promise<void>;
   toggleTaskCompleted: (id: string) => Promise<void>;
   toggleArchived: (id: string) => Promise<void>;
-  /** Cancela un recordatorio de ubicación pendiente. */
+  /** Cancela (soft) un recordatorio de ubicación pendiente — conserva el historial, pero sigue visible como "Cancelado". Ver `remove` para borrarlo del todo. */
   cancelLocation: (id: string) => Promise<void>;
-  /** Borra una nota/tarea permanentemente. */
-  removeNote: (id: string) => Promise<void>;
+  /**
+   * Borra un recordatorio o nota permanentemente (cualquier `kind`) — deja
+   * de aparecer en la libreta. Antes ("removeNote") solo funcionaba para
+   * notas; los recordatorios de ubicación solo se podían cancelar (seguían
+   * visibles como "Cancelado"). Generalizado a pedido real del fundador
+   * (2026-09-01): "necesito un botón para eliminar los recordatorios...
+   * que ya quiera borrar del todo".
+   */
+  remove: (id: string) => Promise<void>;
 }
 
 interface GeocodeResult {
@@ -144,7 +151,12 @@ export function useReminders(): RemindersController {
       isTask?: boolean;
       remindAt?: string | null;
     }) => {
-      if (!input.message.trim()) return null;
+      // Sin guarda de "message vacío" a propósito: el botón "+" de la
+      // libreta crea la nota EN BLANCO (mismo patrón desde que "Notas" era
+      // 100% local) — el backend ya acepta `message: ""` para `kind:
+      // "note"` (ver comentario real en `LocationRemindersController.create()`).
+      // Bug real reportado 2026-09-01: esta guarda bloqueaba justo ese
+      // caso y el botón "+" no hacía nada.
       const created = await backend.post<Reminder>("/location-reminders", {
         kind: "note",
         message: input.message.trim(),
@@ -255,7 +267,7 @@ export function useReminders(): RemindersController {
     [refresh],
   );
 
-  const removeNote = useCallback(
+  const remove = useCallback(
     async (id: string) => {
       await backend.delete(`/location-reminders/${id}/permanent`);
       await refresh();
@@ -279,6 +291,6 @@ export function useReminders(): RemindersController {
     toggleTaskCompleted,
     toggleArchived,
     cancelLocation,
-    removeNote,
+    remove,
   };
 }

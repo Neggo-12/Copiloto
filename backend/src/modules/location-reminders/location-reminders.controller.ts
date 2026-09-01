@@ -80,13 +80,14 @@ export class LocationRemindersController {
 
   @Post()
   async create(@Req() request: AuthenticatedRequest, @Body() body: CreateReminderBody) {
-    if (!body?.message?.trim()) {
-      throw new BadRequestException("message es requerido.");
-    }
-
     const kind = body.kind ?? "location";
 
     if (kind === "location") {
+      // Un recordatorio de LUGAR sin mensaje no tiene sentido (¿qué avisa
+      // al pasar por ahí?) — sigue siendo obligatorio, solo para este kind.
+      if (!body?.message?.trim()) {
+        throw new BadRequestException("message es requerido.");
+      }
       if (typeof body.latitude !== "number" || typeof body.longitude !== "number") {
         throw new BadRequestException("latitude y longitude son requeridos y deben ser numéricos.");
       }
@@ -113,13 +114,21 @@ export class LocationRemindersController {
       throw new BadRequestException('kind debe ser "location" o "note".');
     }
 
+    // Bug real reportado 2026-09-01: el botón "+" de la libreta crea una
+    // nota EN BLANCO a propósito (el usuario la llena después con el
+    // autoguardado de `RemindersEditorScreen`, mismo patrón desde que
+    // "Notas" existía 100% local) — este endpoint exigía `message` no
+    // vacío para AMBOS kinds por igual, así que esa nota en blanco nunca
+    // se creaba y el botón "+" no hacía nada. A diferencia de un
+    // recordatorio de lugar, una nota sin mensaje (todavía) es un estado
+    // válido — el título/cuerpo se llenan después.
     if (body.remindAt != null && !isValidIsoDate(body.remindAt)) {
       throw new BadRequestException("remindAt debe ser una fecha ISO 8601 válida.");
     }
 
     const created = await this.reminders.create(request.userId, {
       kind: "note",
-      message: body.message.trim(),
+      message: body.message?.trim() ?? "",
       title: body.title?.trim() || null,
       isTask: body.isTask ?? false,
       remindAt: body.remindAt ?? null,
@@ -204,11 +213,19 @@ export class LocationRemindersController {
     return { cancelled: true };
   }
 
-  /** Borrado permanente — solo notas/tareas. */
+  /**
+   * Borrado permanente — cualquier `kind` (antes solo notas, ver comentario
+   * real en `LocationRemindersService.remove()`). `cache.invalidate()` es
+   * necesario aquí igual que en `cancel()`: si el recordatorio borrado era
+   * `kind: "location"` y estaba pendiente, sin esto seguiría viviendo en el
+   * caché de Redis del geofence y podría disparar igual. `noteScheduler.cancel`
+   * es no-op inofensivo si el recordatorio era de ubicación (nunca tuvo job).
+   */
   @Delete(":id/permanent")
   async remove(@Req() request: AuthenticatedRequest, @Param("id") id: string) {
     await this.reminders.remove(request.userId, id);
     await this.noteScheduler.cancel(id);
+    await this.cache.invalidate(request.userId);
     return { removed: true };
   }
 }

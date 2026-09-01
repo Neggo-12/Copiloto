@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -39,10 +40,12 @@ const STATUS_LABEL: Record<
 };
 
 /**
- * Pantalla de detalle/edición. Una nota o tarea se edita libremente
- * (autoguardado, sin botón "Guardar"). Un recordatorio de ubicación no se
- * edita — se creó ya geocodificado (por voz o por dirección) — esta
- * pantalla solo muestra su estado y permite cancelarlo.
+ * Pantalla de detalle/edición. Una nota o tarea tiene autoguardado (al
+ * perder el foco de cada campo) MÁS un botón explícito "Guardar" — a
+ * pedido real del fundador, que quería una confirmación visible en vez de
+ * solo autoguardado silencioso. Un recordatorio de ubicación no se edita —
+ * se creó ya geocodificado (por voz o por dirección) — esta pantalla solo
+ * muestra su estado y permite eliminarlo.
  */
 export function RemindersEditorScreen({
   controller,
@@ -56,6 +59,12 @@ export function RemindersEditorScreen({
   const item = [...controller.reminders, ...controller.archivedReminders].find(
     (r) => r.id === reminderId,
   );
+  // `RemindersTab` desmonta/monta esta pantalla de nuevo cada vez que se
+  // abre una nota distinta (pasa siempre por la lista en medio) — así que
+  // estos refs siempre arrancan apuntando al ítem correcto, sin necesidad
+  // de sincronizarlos si `reminderId` cambia.
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   if (!item) return null;
 
@@ -81,18 +90,16 @@ export function RemindersEditorScreen({
             </div>
           </div>
 
-          {item.status === "pending" && (
-            <button
-              type="button"
-              onClick={() => {
-                void controller.cancelLocation(item.id);
-                onBack();
-              }}
-              className="press touch-target mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-border px-4 py-3 text-[15px] font-medium text-destructive active:bg-secondary"
-            >
-              <Trash2 className="size-5" /> Cancelar recordatorio
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              void controller.remove(item.id);
+              onBack();
+            }}
+            className="press touch-target mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-border px-4 py-3 text-[15px] font-medium text-destructive active:bg-secondary"
+          >
+            <Trash2 className="size-5" /> Eliminar recordatorio
+          </button>
         </div>
       </DetailScreen>
     );
@@ -107,7 +114,7 @@ export function RemindersEditorScreen({
           type="button"
           aria-label="Eliminar nota"
           onClick={() => {
-            void controller.removeNote(item.id);
+            void controller.remove(item.id);
             onBack();
           }}
           className="press touch-target grid place-items-center rounded-full text-destructive active:bg-secondary"
@@ -118,6 +125,7 @@ export function RemindersEditorScreen({
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
         <input
+          ref={titleInputRef}
           defaultValue={item.title ?? ""}
           onBlur={(event) =>
             void controller.updateText(item.id, { title: event.target.value || null })
@@ -127,11 +135,39 @@ export function RemindersEditorScreen({
         />
 
         <textarea
+          ref={messageInputRef}
           defaultValue={item.message}
           onBlur={(event) => void controller.updateText(item.id, { message: event.target.value })}
           placeholder="Escribe lo que quieras recordar…"
           className="mt-3 min-h-48 w-full resize-none bg-transparent text-[16px] leading-relaxed outline-none placeholder:text-muted-foreground"
         />
+
+        {/*
+          Botón explícito de guardar, a pedido real del fundador
+          (2026-09-01): antes solo existía autoguardado al perder el foco
+          (`onBlur`), sin ninguna confirmación visible — se mantiene el
+          autoguardado como red de seguridad (ej. si sale con el gesto de
+          "atrás" sin tocar este botón), y se agrega esto para dar la
+          confirmación explícita que pidió. Espera a que `updateText`
+          termine (incluye su propio `refresh()`) ANTES de llamar `onBack`
+          — si no, `RemindersTab.onBack` podría leer el título/mensaje
+          viejos (sin guardar todavía) y borrar por error una nota que en
+          realidad ya no está vacía.
+        */}
+        <Button
+          className="mt-3 w-full"
+          onClick={() => {
+            void (async () => {
+              await controller.updateText(item.id, {
+                title: titleInputRef.current?.value.trim() || null,
+                message: messageInputRef.current?.value ?? "",
+              });
+              onBack();
+            })();
+          }}
+        >
+          <Check className="size-4" /> Guardar
+        </Button>
 
         <section className="mt-2 space-y-3">
           <div className="rounded-2xl border border-border bg-surface p-3">

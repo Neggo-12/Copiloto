@@ -353,14 +353,24 @@ export class LocationRemindersService {
     }
   }
 
-  /** Borrado permanente — solo para notas/tareas (los recordatorios de ubicación se cancelan, no se borran, para conservar el historial de geofence). */
+  /**
+   * Borrado permanente — cualquier `kind`. Antes solo aplicaba a notas
+   * (`.eq("kind", "note")`): los recordatorios de ubicación solo se podían
+   * "cancelar" (`cancel()`, soft — conserva el historial de geofence), sin
+   * forma real de quitarlos de la lista. Bug real reportado 2026-09-01 por
+   * el fundador: cancelar no los hacía desaparecer (`status: "cancelled"`
+   * seguía visible en la libreta) y pidió explícitamente un botón para
+   * "borrar del todo". El caller (`LocationRemindersController`) es
+   * responsable de invalidar `ReminderCacheService` tras esto — un
+   * recordatorio de ubicación pendiente borrado sin invalidar el caché de
+   * Redis seguiría disparando el geofence desde una copia vieja.
+   */
   async remove(userId: string, id: string): Promise<void> {
     const { error } = await this.supabase
       .from("location_reminders")
       .delete()
       .eq("user_id", userId)
-      .eq("id", id)
-      .eq("kind", "note");
+      .eq("id", id);
 
     if (error) {
       this.logger.error(`remove(${userId}, ${id}): ${error.message}`);
