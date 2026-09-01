@@ -63,14 +63,55 @@ authenticated" que ya tienen `is_chat_admin`/`is_chat_participant`/`is_chat_crea
 
 ## Consecuencias
 
-- Hoy, otorgar el estado de "ambulancia verificada" a un conductor es una operación
-  manual (SQL/MCP). Queda pendiente, para cuando exista un panel de operador, decidir
-  el mecanismo de verificación real (documentos, validación con la entidad de salud,
-  etc.) — explícitamente fuera de alcance de esta porción del ADR.
+- ~~Hoy, otorgar el estado de "ambulancia verificada" a un conductor es una operación
+  manual (SQL/MCP)~~ — **cerrado 2026-09-01**, ver "Panel de administrador real"
+  abajo. El mecanismo de verificación real (documentos, validación con la
+  entidad de salud, etc.) sigue sin definir — el panel de hoy es solo
+  "el administrador declara qué placa/teléfono es ambulancia", nada de
+  validación documental automática (no pedida todavía).
 - Esta tabla es la única pieza construida de Emergency hasta ahora. El resto (rutas,
   tracking GPS, corredor geoespacial, Conflict Engine, Alert Policy) depende de
   Location & Navigation (Fase 2 del cronograma) y se documentará en actualizaciones
   posteriores de este mismo ADR conforme avancen las fases.
+
+## Panel de administrador real (2026-09-01)
+
+A pedido explícito del fundador ("yo desde una cuenta admin maestro asigno
+qué vehículo son ambulancia... cuando yo lo asigne ese conductor lo activa
+manual"), se cerró el gap documentado arriba: `POST /emergency/admin/vehicles`
+(verifica/asigna por teléfono del conductor — el administrador no maneja
+UUIDs internos), `PATCH /emergency/admin/vehicles/:driverId` (activa/
+desactiva sin borrar historial) y `GET /emergency/admin/vehicles` (lista con
+nombre/teléfono reales, para la pantalla nueva `AdminAmbulanciasScreen.tsx`).
+
+**Autorización — sigue siendo "sin autoservicio", ahora con forma real**:
+nuevo `AdminGuard` (corre después de `SupabaseAuthGuard`), compara
+`request.userId` (del JWT real ya verificado) contra `ADMIN_USER_ID` (una
+sola variable de entorno — el `user_id` de Supabase Auth de la cuenta del
+fundador, nunca hardcodeada, nunca decidida por el cliente). Deliberadamente
+NO es un sistema de roles genérico (sin tabla `admins`, sin columna
+`profiles.role`) — hoy es literalmente una persona, y no hay evidencia de
+que haga falta más de una; construir RBAC genérico ahora sería complejidad
+sin evidencia. Falla CERRADO si `ADMIN_USER_ID` no está configurado.
+
+**Detalle real encontrado auditando antes de construir**: `assignVerified`
+usa `upsert(..., { onConflict: "driver_id" })` — se verificó contra el
+esquema real (`pg_indexes`) que `driver_id` sí tiene un índice único real
+(`emergency_vehicles_driver_id_key`), aunque no aparece como constraint con
+nombre en `pg_constraint` (es un índice único aplicado directo, no vía
+`ADD CONSTRAINT`) — confirmado antes de escribir el upsert, no asumido de
+la descripción de ADR-0006 original. `vehicle_type` se fija siempre a
+`"ambulance"` del lado del servidor (la constraint `CHECK` real de la tabla
+no acepta otro valor) — no se le pide al administrador un dato que la base
+de todos modos va a rechazar si es distinto.
+
+Verificado real contra el proyecto Supabase vivo (no un mock): se resolvió
+un teléfono real a su `driver_id` real, se hizo el upsert real, se confirmó
+la fila resultante, y se revirtió (0 filas de prueba dejadas) — mismo
+método de "simulación transaccional, revertida" usado en el resto del
+proyecto. `typecheck`/`lint`/`build` del backend y frontend quedan
+pendientes de correr en la máquina del fundador (límite de siempre de este
+entorno).
 
 ## Referencias
 

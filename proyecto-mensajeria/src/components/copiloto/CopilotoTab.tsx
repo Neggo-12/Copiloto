@@ -7,14 +7,20 @@ import { ModoManejoScreen } from "./ModoManejoScreen";
 import { EmergenciaScreen } from "./EmergenciaScreen";
 import { NotificacionesScreen } from "./NotificacionesScreen";
 import { AsistenteVozScreen } from "./AsistenteVozScreen";
+import { AdminAmbulanciasScreen } from "./AdminAmbulanciasScreen";
 
-export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones" | "voz";
+export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones" | "voz" | "admin";
 
 const SUB_TABS: { key: CopilotoSubTab; label: string }[] = [
   { key: "modo", label: "Modo" },
   { key: "emergencia", label: "Emergencia" },
   { key: "notificaciones", label: "Alertas" },
   { key: "voz", label: "Voz" },
+  // Siempre visible en la sub-nav a propósito (mismo criterio que el resto
+  // de la app: "nunca decidido por el cliente") — el backend real
+  // (`AdminGuard`) es quien rechaza a cualquiera que no sea el
+  // administrador, la pantalla solo refleja ese 403 real.
+  { key: "admin", label: "Admin" },
 ];
 
 /**
@@ -67,5 +73,7 @@ export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
       return <NotificacionesScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />;
     case "voz":
       return <AsistenteVozScreen controller={voiceSession} tabBar={tabBar} subNav={subNav} />;
+    case "admin":
+      return <AdminAmbulanciasScreen tabBar={tabBar} subNav={subNav} />;
   }
 }

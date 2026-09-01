@@ -34,6 +34,14 @@
  * `supportedActions.includes("bidiGenerateContent")`) — el nombre que trae
  * el ejemplo del SDK (`gemini-live-2.5-flash-preview`) no existe para esta
  * cuenta (cierre 1008 real, "is not found for API version v1beta").
+ *
+ * ADMIN_USER_ID: administrador maestro del Emergency Corridor (2026-09-01,
+ * a pedido explícito del fundador — quién puede verificar/asignar qué
+ * vehículo es ambulancia, ver `AdminGuard`). Es el `user_id` de Supabase
+ * Auth de UNA sola cuenta (la del fundador), no un sistema de roles —
+ * opcional por el mismo motivo que las demás keys de proveedor: sin
+ * configurar, `AdminGuard` rechaza a todo el mundo (falla cerrado, nunca
+ * abierto) en vez de tumbar el arranque del backend.
  */
 export interface EnvConfig {
   NODE_ENV: "development" | "production" | "test";
@@ -47,6 +55,7 @@ export interface EnvConfig {
   VAPID_SUBJECT: string | undefined;
   GEMINI_API_KEY: string | undefined;
   GEMINI_LIVE_MODEL: string;
+  ADMIN_USER_ID: string | undefined;
 }
 
 const REQUIRED_KEYS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "REDIS_URL"] as const;
@@ -72,5 +81,6 @@ export function validateEnv(raw: Record<string, unknown>): EnvConfig {
     VAPID_SUBJECT: (raw.VAPID_SUBJECT as string | undefined) || undefined,
     GEMINI_API_KEY: (raw.GEMINI_API_KEY as string | undefined) || undefined,
     GEMINI_LIVE_MODEL: (raw.GEMINI_LIVE_MODEL as string | undefined) || "gemini-3.1-flash-live-preview",
+    ADMIN_USER_ID: (raw.ADMIN_USER_ID as string | undefined) || undefined,
   };
 }
