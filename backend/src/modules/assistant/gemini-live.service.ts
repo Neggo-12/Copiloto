@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { GoogleGenAI, Modality, Type } from "@google/genai";
-import type { FunctionCall, LiveServerMessage, Session } from "@google/genai";
+import type { FunctionCall, LiveServerMessage, Schema, Session } from "@google/genai";
 import type { EnvConfig } from "../../config/env.validation";
 import { AssistantToolsService, type ToolDescriptor } from "./assistant-tools.service";
 
@@ -54,19 +54,43 @@ const JSON_SCHEMA_TYPE_TO_GEMINI: Record<string, Type> = {
   array: Type.ARRAY,
 };
 
-function toGeminiParameters(parameters: ToolDescriptor["parameters"]) {
+/**
+ * `requiresConfirmation` agrega un parámetro `confirmed` (opcional, solo en
+ * las tools que lo necesitan) — bug real corregido 2026-08-31: antes
+ * `executeCall` mandaba SIEMPRE `confirmed: false`, sin darle al modelo
+ * ninguna forma de expresar "el usuario ya dijo que sí" en la segunda
+ * llamada, así que CUALQUIER tool confirmable (ej. `send_message`) quedaba
+ * en un loop infinito de "¿confirmas?" — confirmado real con una
+ * conversación real del fundador donde mandar un mensaje nunca se ejecutó
+ * pese a confirmar varias veces de palabra. Con este parámetro declarado,
+ * el modelo puede volver a llamar la misma tool con `confirmed: true` una
+ * vez el usuario confirma en voz — `executeCall` de todas formas ignora
+ * este valor para `activate_emergency_corridor` (ver ahí), que sigue sin
+ * poder confirmarse por voz a propósito.
+ */
+function toGeminiParameters(parameters: ToolDescriptor["parameters"], requiresConfirmation: boolean) {
+  const properties: Record<string, Schema> = Object.fromEntries(
+    Object.entries(parameters.properties).map(([key, prop]) => [
+      key,
+      {
+        type: JSON_SCHEMA_TYPE_TO_GEMINI[prop.type] ?? Type.STRING,
+        description: prop.description,
+        ...(prop.enum ? { enum: prop.enum } : {}),
+      },
+    ]),
+  );
+
+  if (requiresConfirmation) {
+    properties["confirmed"] = {
+      type: Type.BOOLEAN,
+      description:
+        "Poner en true SOLO en la segunda llamada a esta misma tool, después de que el usuario haya confirmado de palabra la acción descrita en el 'summary' de needs_confirmation. No poner en true en la primera llamada.",
+    };
+  }
+
   return {
     type: Type.OBJECT,
-    properties: Object.fromEntries(
-      Object.entries(parameters.properties).map(([key, prop]) => [
-        key,
-        {
-          type: JSON_SCHEMA_TYPE_TO_GEMINI[prop.type] ?? Type.STRING,
-          description: prop.description,
-          ...(prop.enum ? { enum: prop.enum } : {}),
-        },
-      ]),
-    ),
+    properties,
     required: parameters.required,
   };
 }
@@ -100,11 +124,16 @@ function toGeminiParameters(parameters: ToolDescriptor["parameters"]) {
  *   (eso requiere el frontend de "Modo conducción", que no existe aún) —
  *   no se declara "funciona" hasta verlo pasar con audio real, mismo
  *   criterio de honestidad del resto del proyecto.
- * - `ctx.confirmed` SIEMPRE `false`, sin importar qué haya "dicho" la
- *   sesión: si el modelo llama `activate_emergency_corridor`, la tool
- *   (ADR-0016) responde `needs_confirmation` y nunca ejecuta el efecto
- *   real (geocoding/routing/`RouteSessionService.start()`). Activar la
- *   emergencia de verdad por voz queda fuera de este slice a propósito.
+ * - `ctx.confirmed` refleja lo que el modelo realmente mande de vuelta
+ *   (parámetro `confirmed`, ver `toGeminiParameters`) — corregido
+ *   2026-08-31: antes quedaba SIEMPRE `false`, lo que bloqueaba por error
+ *   CUALQUIER tool confirmable (no solo la de emergencia), incluyendo
+ *   `send_message`. La ÚNICA excepción deliberada que se mantiene es
+ *   `activate_emergency_corridor` (ver `executeCall`): si el modelo la
+ *   llama, la tool (ADR-0016) responde `needs_confirmation` y NUNCA
+ *   ejecuta el efecto real (geocoding/routing/`RouteSessionService.start()`),
+ *   sin importar qué `confirmed` mande el modelo — activar la emergencia
+ *   de verdad por voz sigue fuera de este slice a propósito.
  */
 @Injectable()
 export class GeminiLiveService {
@@ -141,10 +170,10 @@ export class GeminiLiveService {
   async startSession(userId: string, callbacks: GeminiLiveCallbacks = {}): Promise<GeminiLiveSessionHandle | null> {
     if (!this.ai) return null;
 
-    const functionDeclarations = this.tools.list().map(({ name, description, parameters }) => ({
+    const functionDeclarations = this.tools.list().map(({ name, description, parameters, requiresConfirmation }) => ({
       name,
       description,
-      parameters: toGeminiParameters(parameters),
+      parameters: toGeminiParameters(parameters, requiresConfirmation),
     }));
 
     // `let` sin inicializar (no `const`): verificado real (no supuesto) que
@@ -242,9 +271,18 @@ export class GeminiLiveService {
 
   private async executeCall(userId: string, call: FunctionCall) {
     const name = call.name ?? "";
-    // Seguridad deliberada (ver comentario de clase): nunca `confirmed: true`
-    // en este slice, sin importar lo que haya "dicho" la voz.
-    const outcome = await this.tools.execute(name, { userId, confirmed: false }, call.args ?? {});
+    // Bug real corregido 2026-08-31 (ver `toGeminiParameters`): antes se
+    // mandaba `confirmed: false` SIEMPRE, para cualquier tool — dejaba
+    // `send_message` (y cualquier otra tool confirmable) en loop infinito
+    // de "¿confirmas?" sin poder ejecutarse nunca. Ahora se lee el
+    // `confirmed` real que el modelo mande de vuelta (solo existe como
+    // parámetro en las tools con `requiresConfirmation`, ver arriba).
+    // `activate_emergency_corridor` es la ÚNICA excepción deliberada
+    // (ver comentario de clase): activar una emergencia real por voz sigue
+    // fuera de alcance a propósito, así que se ignora cualquier `confirmed`
+    // que el modelo mande para esa tool específica, pase lo que pase.
+    const confirmed = name === "activate_emergency_corridor" ? false : call.args?.["confirmed"] === true;
+    const outcome = await this.tools.execute(name, { userId, confirmed }, call.args ?? {});
     return { id: call.id, name, response: { output: outcome } };
   }
 }

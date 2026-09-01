@@ -26,6 +26,14 @@ interface AuthenticatedSocket extends Socket {
  * cliente→Gemini como de Gemini→cliente — la app decide cómo bufferear
  * para reproducir suave del lado del navegador.
  *
+ * `voice:ready` es obligatorio esperar del lado del cliente antes de mandar
+ * `voice:text`/`voice:audio-chunk` — bug real encontrado con
+ * `verify-voice-gateway.ts`: el evento `connect` del cliente dispara al
+ * terminar el handshake de transporte, ANTES de que `handleConnection`
+ * (dos `await` reales: verificar token, abrir sesión Gemini) termine. Sin
+ * este handshake explícito, un mensaje mandado justo al conectar se pierde
+ * en silencio.
+ *
  * Pendiente, honesto (ver ADR-0034): esto solo se probó con el flujo de
  * texto (`voice:text`, útil para depurar sin micrófono real). El flujo de
  * audio real (`voice:audio-chunk`) todavía no se probó con un micrófono
@@ -89,6 +97,18 @@ export class AssistantVoiceGateway implements OnGatewayConnection, OnGatewayDisc
 
     authed.data.voiceSession = session;
     this.logger.log(`Sesión de voz abierta (userId=${userId}, socket=${client.id})`);
+    // Bug real encontrado y corregido (mismo tipo que el de TDZ en
+    // GeminiLiveService, pero a nivel de WebSocket): el evento `connect` del
+    // CLIENTE dispara en cuanto termina el handshake de transporte, que
+    // ocurre ANTES de que este `handleConnection` (dos `await` reales:
+    // verificar el token, después abrir la sesión de Gemini) termine. Si el
+    // cliente manda `voice:text`/`voice:audio-chunk` justo al conectar, el
+    // mensaje llegaba con `client.data.voiceSession` todavía `undefined` y
+    // se perdía en silencio (optional chaining no truena, pero tampoco
+    // manda nada) — confirmado real con `verify-voice-gateway.ts` (conectó,
+    // mandó el turno, nunca llegó respuesta). Fix: un evento explícito de
+    // "listo" — el cliente debe esperarlo antes de mandar nada.
+    client.emit("voice:ready", {});
   }
 
   handleDisconnect(client: Socket): void {

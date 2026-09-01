@@ -3,6 +3,31 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
 import type { ChatResolutionError, ChatSummary, MessageSummary } from "./messaging.types";
 
+/** Quita tildes/diacríticos y pasa a minúsculas — para comparar nombres "José" == "jose" == "JOSE". */
+const COMBINING_DIACRITICS_PATTERN = new RegExp("[\\u0300-\\u036f]", "g");
+
+function normalizeForMatch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(COMBINING_DIACRITICS_PATTERN, "")
+    .toLowerCase();
+}
+
+/**
+ * `candidateName` (nombre guardado en la libreta, sin normalizar) hace
+ * match con `normalizedQuery` (ya normalizado por `normalizeForMatch`) si
+ * uno contiene al otro completo, O si comparten al menos una palabra
+ * completa — cubre tanto "Jose" ⟷ "Jose Luis" en cualquier dirección como
+ * apellidos/apodos sueltos. Ver comentario de `resolveChatByContactName`.
+ */
+function namesLikelyMatch(candidateName: string, normalizedQuery: string): boolean {
+  const candidate = normalizeForMatch(candidateName);
+  if (candidate.includes(normalizedQuery) || normalizedQuery.includes(candidate)) return true;
+  const candidateWords = candidate.split(/\s+/).filter(Boolean);
+  const queryWords = normalizedQuery.split(/\s+/).filter(Boolean);
+  return candidateWords.some((word) => queryWords.includes(word));
+}
+
 /**
  * Envoltorio real sobre las MISMAS tablas de Supabase que ya usa
  * proyecto-mensajeria (`chats`, `chat_participants`, `messages`, `contacts`,
@@ -64,18 +89,38 @@ export class MessagingService {
 
   /**
    * Busca, entre los contactos reales del usuario, un chat 1 a 1 por nombre
-   * (coincidencia parcial, insensible a mayúsculas/tildes básicas). No
-   * inventa un chat nuevo — si nunca han hablado, devuelve `not_found`.
+   * (coincidencia parcial, insensible a mayúsculas/tildes). No inventa un
+   * chat nuevo — si nunca han hablado, devuelve `not_found`.
+   *
+   * Bug real corregido 2026-08-31 (dos partes):
+   * 1. El comentario de este método ya decía "insensible a tildes", pero la
+   *    implementación usaba `.ilike()` de Postgres, que SOLO ignora
+   *    mayúsculas/minúsculas, no tildes — probado real con el fundador
+   *    hablando por voz: pedir "José Luis" (con tilde) no encontraba el
+   *    contacto guardado como "Jose luis" (sin tilde). Fix: en vez de
+   *    filtrar en Postgres (`ilike`), se trae la libreta completa del
+   *    usuario (siempre pequeña, sin problema de performance) y se compara
+   *    en JS quitando tildes de los dos lados.
+   * 2. Además probado real: el contacto guardado en la libreta como solo
+   *    "Jose" no hacía match cuando el asistente preguntaba por "José
+   *    Luis" (nombre completo que vio en `list_chats`, del perfil real de
+   *    esa persona — distinto del nombre corto que el usuario le puso en
+   *    SU libreta). Un `includes()` de una sola dirección solo funciona
+   *    cuando el query es más corto que el nombre guardado, nunca al
+   *    revés. Fix: match por contención en AMBOS sentidos, y además por
+   *    palabra suelta en común (así "Jose" ⟷ "Jose Luis" hacen match sin
+   *    importar cuál de los dos es más largo).
    */
   async resolveChatByContactName(userId: string, contactNameQuery: string): Promise<{ chatId: string; contactName: string } | ChatResolutionError> {
     const { data: contactRows } = await this.supabase
       .from("contacts")
       .select("display_name, contact_profile_id")
       .eq("user_id", userId)
-      .not("contact_profile_id", "is", null)
-      .ilike("display_name", `%${contactNameQuery}%`);
+      .not("contact_profile_id", "is", null);
 
-    const candidates = (contactRows ?? []) as { display_name: string; contact_profile_id: string }[];
+    const normalizedQuery = normalizeForMatch(contactNameQuery);
+    const allContacts = (contactRows ?? []) as { display_name: string; contact_profile_id: string }[];
+    const candidates = allContacts.filter((row) => namesLikelyMatch(row.display_name, normalizedQuery));
     if (candidates.length === 0) return { error: "not_found" };
     if (candidates.length > 1) return { error: "ambiguous", matches: candidates.map((row) => row.display_name) };
 

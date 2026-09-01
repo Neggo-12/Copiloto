@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { GEOCODING_PROVIDER, type GeocodingProvider } from "../../navigation/providers/geocoding-provider.interface";
+import { LocationStateService } from "../../location/location-state.service";
 import { LocationRemindersService } from "../../location-reminders/location-reminders.service";
 import type { AssistantTool, ToolExecutionContext, ToolOutcome } from "../assistant.types";
 
@@ -30,6 +31,7 @@ export class CreateLocationReminderTool implements AssistantTool {
   constructor(
     @Inject(GEOCODING_PROVIDER) private readonly geocoding: GeocodingProvider,
     private readonly reminders: LocationRemindersService,
+    private readonly locationState: LocationStateService,
   ) {}
 
   async execute(ctx: ToolExecutionContext, args: Record<string, unknown>): Promise<ToolOutcome> {
@@ -44,17 +46,41 @@ export class CreateLocationReminderTool implements AssistantTool {
       return { status: "error", message: "El radio debe ser un número positivo." };
     }
 
-    const geocoded = await this.geocoding.geocode(address);
+    // Bug real reportado 2026-08-31: sin sesgo de ubicación, "Belén"
+    // devolvía Bethlehem (Medio Oriente) y "Buenos Aires" devolvía la
+    // capital de Argentina, en vez de los barrios reales de Medellín —
+    // nombres de lugar comunes en varios países. `GoogleGeocodingProvider`
+    // ya filtra siempre a Colombia (`components=country:CO`); aquí además
+    // se manda la ubicación real conocida del usuario (si existe) como
+    // sesgo adicional dentro del país, exactamente lo que pidió el
+    // fundador: "la app debe pedir mi ubicación en tiempo real para que
+    // funcione muy bien". Si no hay ubicación reportada todavía (nunca se
+    // conectó por WebSocket), se sigue geocodificando sin ese sesgo extra
+    // — el filtro por país ya cubre el bug reportado.
+    const current = await this.locationState.getCurrent(ctx.userId);
+    const near = current ? { latitude: current.location.latitude, longitude: current.location.longitude } : undefined;
+
+    const geocoded = await this.geocoding.geocode(address, near);
     if (!geocoded) {
       return { status: "error", message: `No encontré la dirección "${address}".` };
     }
+
+    // Bug real reportado 2026-08-31: sin esto, un barrio/sector ("Buenos
+    // Aires") siempre usaba el radio fijo de 300m de
+    // `LocationRemindersService` alrededor de un solo punto, dejando fuera
+    // partes reales del barrio. Si el usuario no pidió un radio explícito,
+    // se usa el que el geocoding sugiere según el tamaño real del área
+    // (`suggestedRadiusMeters`, ver `GoogleGeocodingProvider`) — si tampoco
+    // hay sugerencia (ej. una dirección puntual), se deja `undefined` y
+    // `LocationRemindersService` aplica su default de 300m como antes.
+    const effectiveRadiusMeters = radiusMeters ?? geocoded.suggestedRadiusMeters;
 
     const reminder = await this.reminders.create(ctx.userId, {
       kind: "location",
       message,
       latitude: geocoded.location.latitude,
       longitude: geocoded.location.longitude,
-      radiusMeters,
+      radiusMeters: effectiveRadiusMeters,
       label: geocoded.formattedAddress,
     });
 

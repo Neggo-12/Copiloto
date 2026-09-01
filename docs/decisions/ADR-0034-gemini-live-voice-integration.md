@@ -1,14 +1,26 @@
-# ADR-0034 — Asistente de voz: integración real con Gemini Live API (primer slice)
+# ADR-0034 — Asistente de voz: integración real con Gemini Live API (dos slices)
 
 **Fecha:** 2026-08-31
-**Estado:** Aceptado y **verificado real de punta a punta** — cambia el
-proveedor de voz elegido en ADR-0016 (OpenAI Realtime) por Gemini Live
-API, decisión explícita del fundador. Sesión Live real contra la API de
-Google, con la tool real `list_vehicles` (Supabase real) llamada por el
-modelo y respondida correctamente: *"Tienes una moto registrada con la
-placa URU89E."* — dato real, no simulado (ver "Verificación" abajo para
-el recorrido completo de debugging, incluidos dos bugs reales encontrados
-y corregidos contra la API real, no contra supuestos).
+**Estado:** Aceptado y **verificado real de punta a punta, con micrófono
+real** — cambia el proveedor de voz elegido en ADR-0016 (OpenAI Realtime)
+por Gemini Live API, decisión explícita del fundador.
+
+Dos slices, ambos verificados reales (no simulados):
+1. **Backend (texto por script/WebSocket)**: sesión Live real, tool real
+   `list_vehicles` (Supabase real) llamada por el modelo y respondida
+   correctamente.
+2. **Frontend (micrófono real del navegador → Gemini → voz real de
+   vuelta)**: el fundador habló la pregunta "¿qué vehículos tengo
+   registrados?" por el micrófono real de `proyecto-mensajeria`
+   (pestaña Copiloto → Voz), Gemini llamó `list_vehicles` de verdad,
+   Supabase respondió real, y el fundador **escuchó la respuesta en voz
+   real** ("Tienes una moto registrada con placas URU89E", voz femenina
+   sintetizada por Gemini) — primera conversación de voz de punta a punta
+   de la plataforma, confirmada por el fundador, no inferida.
+
+Ver "Verificación" abajo para el recorrido completo de debugging de ambos
+slices, incluidos varios bugs reales encontrados y corregidos contra la
+API/el navegador real, no contra supuestos.
 
 ## Contexto
 
@@ -71,23 +83,30 @@ manda a `AssistantToolsService.execute()` (el mismo dispatcher que ya usa
 el endpoint REST — ni una tool nueva, ni un camino de ejecución paralelo),
 y la respuesta real se manda de vuelta con `session.sendToolResponse()`.
 
-## Alcance — qué NO se construyó en este slice, y por qué
+**Segundo slice — audio real bidireccional + frontend real.**
+`GeminiLiveService.sendAudioChunk()`/`endAudioStream()` mandan audio real
+del micrófono a Gemini (`session.sendRealtimeInput`); `onAudio` expone los
+chunks reales de audio de salida (`serverContent.modelTurn.parts[].inlineData`).
+Nuevo **`AssistantVoiceGateway`** (`backend/src/modules/assistant/assistant-voice.gateway.ts`)
+expone todo esto por WebSocket real (`/assistant-voice`) — REUSE explícito
+del mismo patrón de auth que `LocationGateway` (token en
+`handshake.auth.token` → `supabase.auth.getUser`). Del lado de
+`proyecto-mensajeria`: `lib/audio/pcm.ts` (conversión PCM real: downsample
+del micrófono a 16kHz, base64, y de vuelta para reproducir), el hook
+`useGeminiVoiceSession.ts` (captura real con `ScriptProcessorNode`,
+reproducción real con `AudioBufferSourceNode` encadenado) y la pantalla
+`AsistenteVozScreen.tsx`, integrada como cuarta sub-pestaña ("Voz") dentro
+de Copiloto — REUSE del mismo patrón de conexión que `useCopilotoRealtime`
+(`getBackendAccessToken()` + `io(namespace, {auth:{token}})`).
 
-- **Reproducción de audio real, no todavía.** La sesión se abre con
-  `responseModalities: [Modality.AUDIO]` — no por elección, sino porque se
-  verificó real que el modelo disponible para esta cuenta
-  (`gemini-3.1-flash-live-preview`) **rechaza** `TEXT` solo (cierre de
-  socket 1007, "response modalities (TEXT) is not supported by the
-  model" — error real de la API, visto en `debug-gemini-live.ts`). La
-  sesión sí recibe audio real (PCM), pero como `proyecto-mensajeria` no
-  tiene todavía captura de micrófono ni "Modo conducción" (trabajo de
-  frontend sin empezar, documentado desde ADR-0016), esos bytes de audio
-  se descartan sin reproducir; lo que se usa es
-  `outputAudioTranscription`, la transcripción en texto que Gemini manda
-  en paralelo — así se pudo verificar el function calling real sin
-  necesitar altavoz ni micrófono. Construir reproducción/captura de audio
-  real sin poder probarla contra un dispositivo real habría sido
-  simulación — se deja para cuando exista esa UI.
+## Alcance — qué SÍ se construyó y verificó real, qué falta y por qué
+
+- **Voz real bidireccional — CONFIRMADA con micrófono real.** El fundador
+  habló por el micrófono real de `proyecto-mensajeria` y escuchó la
+  respuesta real de Gemini en voz (ver "Verificación"). Esto NO existía al
+  escribir el primer slice de este mismo ADR (que solo tenía transcripción
+  de texto, sin frontend) — se completó en una segunda pasada, misma
+  sesión.
 - **Confirmación de `activate_emergency_corridor` por voz.** El contrato
   REST usa `ctx.confirmed` (un flag que viene del body del request, no de
   los argumentos que controla el modelo) para la segunda llamada
@@ -103,14 +122,28 @@ y la respuesta real se manda de vuelta con `session.sendToolResponse()`.
   riesgo por voz (¿una palabra clave? ¿un botón físico en la app mientras
   tanto?) es una decisión de producto que no se toma sola dentro de un
   ADR de infraestructura.
-- **Endpoint/gateway para iniciar una sesión desde el frontend.**
-  `GeminiLiveService.startSession()` existe y está probado (ver
-  Verificación), pero no hay todavía un WebSocket Gateway de NestJS ni una
-  ruta que lo exponga a `proyecto-mensajeria` — eso depende de que exista
-  la UI de "Modo conducción" primero.
-- **Transcripción de audio de entrada/salida, interrupciones, VAD.** Parte
-  del contrato de "Voice session" en `references/voice-assistant.md`, pero
-  no aplica todavía sin audio real.
+- **Lo que SÍ existe ahora** (segundo slice, ver arriba): `AssistantVoiceGateway`
+  expone la sesión real por WebSocket, y `AsistenteVozScreen` la consume
+  real desde el navegador — confirmado con micrófono real.
+- **Lo que sigue faltando, honesto:**
+  - **"Modo conducción" de verdad** (UX manos-libres: activación por voz
+    sin tocar la pantalla, funcionar con el teléfono bloqueado/en
+    background, interfaz pensada para no distraer mientras se maneja) —
+    hoy es un botón que hay que tocar y sostener la pantalla abierta,
+    suficiente para verificar el pipeline técnico, no para usarlo real
+    manejando.
+  - **Downsampling naive** (`lib/audio/pcm.ts`): decimación por promedio,
+    no resample con filtro anti-aliasing — funcionó para la primera
+    prueba real, pero si la calidad de audio resulta mala en uso
+    prolongado, esto es lo primero a mejorar.
+  - **`ScriptProcessorNode`**, no `AudioWorkletNode` — API deprecada pero
+    universal; sin evidencia todavía de que haga falta migrar.
+  - **Interrupciones/VAD del lado del cliente** — si el usuario habla
+    mientras Gemini está respondiendo, hoy no hay lógica de barge-in
+    explícita del lado del frontend (Gemini sí manda `interrupted` en
+    `serverContent`, pero el cliente todavía no actúa sobre eso).
+  - Sin prueba en dispositivo móvil real ni manejando de verdad — solo
+    navegador de escritorio.
 
 ## Verificación
 
@@ -167,6 +200,89 @@ y la respuesta real se manda de vuelta con `session.sendToolResponse()`.
   la placa URU89E."* — coincide exactamente con el dato real (mismo
   vehículo confirmado antes por REST). Petición real de punta a punta,
   confirmada.
+- **Segundo slice — `AssistantVoiceGateway` + frontend, CONFIRMADO con
+  micrófono real**, con más bugs reales encontrados en el camino:
+  1. **Race condition real a nivel de WebSocket** (mismo tipo de bug que
+     el de TDZ arriba, pero en otra capa): el evento `connect` del
+     CLIENTE dispara al terminar el handshake de transporte, ANTES de que
+     `handleConnection` (dos `await` reales: verificar token, abrir
+     sesión Gemini) termine — un mensaje mandado justo al conectar se
+     perdía en silencio. Confirmado con `verify-voice-gateway.ts` (conectó,
+     mandó el turno, nunca llegó respuesta, sin error). Corregido con un
+     evento explícito `voice:ready` que el cliente espera antes de mandar
+     nada.
+  2. **`Float32Array<ArrayBuffer>` vs. `Float32Array<ArrayBufferLike>`**:
+     TypeScript 5.7+ hizo genéricos los TypedArrays; `AudioBuffer.copyToChannel`
+     exige la variante respaldada por `ArrayBuffer` real, y el tipo de
+     retorno de `int16ToFloat32` (sin anotar) se ensanchaba a
+     `ArrayBufferLike` — error real de `tsc`, corregido anotando el tipo de
+     retorno explícito.
+  3. **El backend se cae/desactualiza entre pruebas** (no es un bug de
+     código — mismo síntoma "websocket error" real dos veces distintas,
+     ambas resueltas reiniciando `bun run start:dev`) — dejar anotado
+     porque costó tiempo real de debugging distinguir "el código está mal"
+     de "el proceso simplemente no está corriendo la versión nueva".
+  Con todo corregido: el fundador abrió la pestaña Copiloto → Voz en
+  `proyecto-mensajeria`, tocó el micrófono, dio permiso real del
+  navegador, preguntó en voz real "¿qué vehículos tengo registrados?", y
+  **escuchó la respuesta real en voz** ("Tienes una moto registrada con
+  placas URU89E", voz femenina sintetizada por Gemini) — confirmado
+  directamente por el fundador. Primera conversación de voz real de
+  punta a punta de la plataforma: micrófono real → WebSocket real →
+  Gemini Live real → tool real → Supabase real → voz real de vuelta.
+- **Bug real #4, encontrado DESPUÉS de la prueba exitosa** (el fundador
+  siguió probando y reportó "me responden como 5 agentes a la vez"):
+  `useGeminiVoiceSession.start()` no tenía guarda contra llamarse dos
+  veces sin haber cerrado la sesión anterior (doble tap, reintentos tras
+  un error, la reconexión automática de socket.io reviviendo un socket
+  viejo en segundo plano). Cada llamada abría un `AudioContext`+socket+
+  sesión de Gemini nuevos SIN cerrar los anteriores — el mismo micrófono
+  real terminaba mandando el mismo audio a varias sesiones de Gemini
+  simultáneas, cada una con su propio historial de conversación y
+  respondiendo por su lado, todas reproduciéndose a la vez por los
+  mismos parlantes. Corregido con `cleanup()` defensivo al inicio de
+  `start()` (garantiza como máximo una sesión viva) + `reconnection:
+  false` en el socket (una desconexión ya no revive sola en segundo
+  plano — el usuario debe tocar el micrófono de nuevo, pasando otra vez
+  por el `cleanup()` de guarda) + limpieza también en `connect_error`/
+  `disconnect` (antes solo pasaba en `voice:closed`) + limpieza al
+  desmontar el componente. Pendiente: re-confirmar con el fundador que
+  una sola voz responde después de este fix (encontrado y corregido
+  antes de esa reconfirmación).
+- **`typecheck`/`lint` de `proyecto-mensajeria`**: corridos reales en la
+  máquina del fundador tras los fixes de arriba — limpios (solo
+  advertencias preexistentes, no relacionadas a este ADR).
+- **Bug real #5, el más serio de esta ronda — encontrado en pruebas de voz
+  reales del fundador (2026-09-01)**: `GeminiLiveService.executeCall()`
+  mandaba **siempre** `confirmed: false` a `AssistantToolsService.execute()`
+  — no solo para `activate_emergency_corridor` (comportamiento deliberado,
+  ver "Alcance" arriba), sino para CUALQUIER tool con
+  `requiresConfirmation: true` (ej. `send_message`). Efecto real: el
+  asistente preguntaba "¿confirmas enviar el mensaje a...?", el fundador
+  decía que sí por voz, y la tool volvía a recibir `confirmed: false` en la
+  segunda llamada — el mensaje nunca se mandaba de verdad, en loop.
+  Corregido en dos partes: (1) `toGeminiParameters()` ahora declara un
+  parámetro `confirmed: boolean` en el schema que Gemini ve, PERO solo para
+  las tools con `requiresConfirmation` (para que el modelo sepa que existe
+  y lo mande en `true` en la segunda llamada, tras la confirmación de
+  palabra del usuario); (2) `executeCall()` lee
+  `call.args?.["confirmed"] === true` en vez del `false` fijo — con la
+  excepción explícita de `activate_emergency_corridor`, que sigue forzado a
+  `false` siempre (la limitación deliberada de "Alcance" arriba sigue
+  vigente, sin cambios). Verificado real: el fundador confirmó por voz
+  varios mensajes distintos tras el fix, y esta vez sí se mandaron.
+- **Nueva tool de voz, misma ronda: `create_note_reminder`**
+  (`backend/src/modules/assistant/tools/create-note-reminder.tool.ts`).
+  `create_location_reminder` (ADR-0016) solo cubre recordatorios
+  geolocalizados — para "recuérdame mañana a las 8am pagar el arriendo" no
+  hay ninguna dirección que geocodificar. Cero superficie nueva de dominio:
+  reusa `LocationRemindersService.create({kind:"note", remindAt})` y
+  `NoteReminderSchedulerService.schedule()`, exactamente el mismo camino
+  que ya usa `POST /location-reminders` (ADR-0030) — solo expuesto también
+  a la voz, mismo `isValidIsoDate` que el controller real. Registrado en
+  `AssistantToolsService`/`AssistantModule` junto a las demás tools.
+  Pendiente: confirmación por voz real del fundador (agregada, no probada
+  todavía en esta sesión).
 
 ## Referencias
 
@@ -178,3 +294,7 @@ y la respuesta real se manda de vuelta con `session.sendToolResponse()`.
 - [Gemini API — Pricing](https://ai.google.dev/gemini-api/docs/pricing)
 - [OpenAI API — Pricing](https://openai.com/api/pricing/)
 - `backend/src/modules/assistant/gemini-live.service.ts`
+- `backend/src/modules/assistant/assistant-voice.gateway.ts`
+- `proyecto-mensajeria/src/lib/audio/pcm.ts`
+- `proyecto-mensajeria/src/hooks/useGeminiVoiceSession.ts`
+- `proyecto-mensajeria/src/components/copiloto/AsistenteVozScreen.tsx`

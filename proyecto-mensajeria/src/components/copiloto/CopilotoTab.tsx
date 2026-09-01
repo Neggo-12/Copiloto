@@ -2,16 +2,19 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { useDrivingMode } from "@/hooks/useDrivingMode";
 import { useCopilotoRealtime } from "@/hooks/useCopilotoRealtime";
+import { useGeminiVoiceSession } from "@/hooks/useGeminiVoiceSession";
 import { ModoManejoScreen } from "./ModoManejoScreen";
 import { EmergenciaScreen } from "./EmergenciaScreen";
 import { NotificacionesScreen } from "./NotificacionesScreen";
+import { AsistenteVozScreen } from "./AsistenteVozScreen";
 
-export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones";
+export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones" | "voz";
 
 const SUB_TABS: { key: CopilotoSubTab; label: string }[] = [
   { key: "modo", label: "Modo" },
   { key: "emergencia", label: "Emergencia" },
   { key: "notificaciones", label: "Alertas" },
+  { key: "voz", label: "Voz" },
 ];
 
 /**
@@ -29,6 +32,11 @@ export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
   const [subTab, setSubTab] = useState<CopilotoSubTab>("modo");
   const drivingMode = useDrivingMode();
   const realtime = useCopilotoRealtime();
+  // No conecta sola (a diferencia de `realtime`): abre micrófono real y una
+  // sesión real de Gemini, solo cuando el usuario toca el botón en la
+  // pantalla — mantenerla montada aquí (como las demás) es seguro porque no
+  // hace nada hasta que se llame `start()`.
+  const voiceSession = useGeminiVoiceSession();
 
   const subNav = (
     <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-border/70 bg-surface/60 px-3 py-2">
@@ -57,5 +65,7 @@ export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
       return <EmergenciaScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />;
     case "notificaciones":
       return <NotificacionesScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />;
+    case "voz":
+      return <AsistenteVozScreen controller={voiceSession} tabBar={tabBar} subNav={subNav} />;
   }
 }

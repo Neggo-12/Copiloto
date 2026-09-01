@@ -3,6 +3,7 @@ import type { AssistantTool, ToolExecutionContext, ToolOutcome } from "./assista
 import { ActivateEmergencyCorridorTool } from "./tools/activate-emergency-corridor.tool";
 import { CalculateRouteTool } from "./tools/calculate-route.tool";
 import { CreateLocationReminderTool } from "./tools/create-location-reminder.tool";
+import { CreateNoteReminderTool } from "./tools/create-note-reminder.tool";
 import { GetDrivingModeTool } from "./tools/get-driving-mode.tool";
 import { ListChatsTool } from "./tools/list-chats.tool";
 import { ListVehiclesTool } from "./tools/list-vehicles.tool";
@@ -33,6 +34,7 @@ export class AssistantToolsService {
 
   constructor(
     createLocationReminder: CreateLocationReminderTool,
+    createNoteReminder: CreateNoteReminderTool,
     calculateRoute: CalculateRouteTool,
     activateEmergencyCorridor: ActivateEmergencyCorridorTool,
     setDrivingMode: SetDrivingModeTool,
@@ -44,6 +46,7 @@ export class AssistantToolsService {
   ) {
     const registry: AssistantTool[] = [
       createLocationReminder,
+      createNoteReminder,
       calculateRoute,
       activateEmergencyCorridor,
       setDrivingMode,
