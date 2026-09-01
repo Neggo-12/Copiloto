@@ -139,3 +139,33 @@ construir el lado de lectura sin el de escritura.
   prueba manual: activar notificaciones desde Ajustes en un navegador real,
   programar una nota con hora fija a 1 minuto, cerrar la pestaña, y
   confirmar que llega el aviso del sistema operativo.
+
+## Bug real encontrado 2026-09-01 (al configurar las llaves VAPID por primera vez)
+
+Hasta el 2026-09-01 el fundador nunca había configurado
+`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` reales, así que la
+rama `if (publicKey && privateKey && subject)` de `WebPushService` nunca se
+había ejecutado — quedaba siempre en el camino de "sin configurar". Al
+configurarlas por primera vez, el backend truena al arrancar:
+`TypeError: Cannot read properties of undefined (reading 'setVapidDetails')`
+en `new WebPushService`.
+
+Causa raíz real: `backend/tsconfig.json` tenía `allowSyntheticDefaultImports:
+true` pero NO `esModuleInterop: true` — trampa clásica de TypeScript, bien
+documentada. `allowSyntheticDefaultImports` solo afecta el chequeo de tipos
+(deja compilar `import webpush from "web-push"` sin error), pero NO cambia
+el JS emitido. Sin `esModuleInterop`, TypeScript compila ese import a
+`webpush_1.default...` — y como `web-push` es un paquete CommonJS plano
+(`module.exports = objeto`, sin propiedad `.default`), esa referencia queda
+`undefined` en tiempo real. `allowSyntheticDefaultImports` sin
+`esModuleInterop` es casi siempre un error de configuración, no una
+elección real — las dos están pensadas para usarse juntas.
+
+**Corrección**: agregar `esModuleInterop: true` a `backend/tsconfig.json`
+(una sola línea). Cambio seguro y de alcance amplio a propósito: no rompe
+ningún import existente (ningún import default de un paquete CommonJS
+funcionaba antes de este fix — no había nada que "accidentalmente
+dependiera" del comportamiento viejo), y previene el mismo bug con
+cualquier otra dependencia CommonJS que se importe con `import x from
+"paquete"` en el futuro. Verificado real: el fundador reinició el backend
+tras el fix y arrancó limpio, con `WebPushService` inicializado sin error.
