@@ -1,6 +1,8 @@
-import { MessageCircle, Phone, Trash2, UserPlus } from "@/components/shared/icons";
+import { useState } from "react";
+import { MessageCircle, Pencil, Phone, Trash2, UserPlus } from "@/components/shared/icons";
 import { DetailScreen } from "@/components/shared/DetailScreen";
 import { Avatar } from "@/components/shared/Avatar";
+import { RenameContactSheet } from "@/components/contacts/RenameContactSheet";
 import { formatContactPhone } from "@/lib/actions/contacts";
 import { startCall } from "@/lib/actions/chats";
 import type { ContactsController } from "@/hooks/useContacts";
@@ -19,6 +21,7 @@ export function ContactDetailScreen({
   onSendMessage: (contact: Contact) => void;
 }) {
   const contact = controller.findContact(contactId);
+  const [isRenaming, setRenaming] = useState(false);
 
   if (!contact) {
     return (
@@ -38,9 +41,19 @@ export function ContactDetailScreen({
           avatarUrl={contact.avatarUrl}
           className="size-28 text-[30px]"
         />
-        <h2 className="mt-4 text-center text-[24px] font-bold tracking-tight">
-          {contact.displayName}
-        </h2>
+        <div className="mt-4 flex items-center gap-1">
+          <h2 className="text-center text-[24px] font-bold tracking-tight">
+            {contact.displayName}
+          </h2>
+          <button
+            type="button"
+            onClick={() => setRenaming(true)}
+            aria-label="Editar nombre"
+            className="press touch-target grid place-items-center rounded-full text-muted-foreground active:bg-secondary"
+          >
+            <Pencil className="size-4" />
+          </button>
+        </div>
         <p className="mt-1 font-mono text-[15px] text-muted-foreground">
           {formatContactPhone(contact.phoneNumber)}
         </p>
@@ -91,6 +104,13 @@ export function ContactDetailScreen({
           <Trash2 className="size-5" /> Eliminar contacto
         </button>
       </div>
+
+      <RenameContactSheet
+        open={isRenaming}
+        controller={controller}
+        contact={contact}
+        onClose={() => setRenaming(false)}
+      />
     </DetailScreen>
   );
 }

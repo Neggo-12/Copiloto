@@ -18,6 +18,8 @@ export interface ContactsController {
   addManualContact: (input: AddContactInput) => Promise<AddContactResult>;
   inviteContact: (contactId: ContactId) => Promise<string>;
   deleteContact: (contactId: ContactId) => void;
+  /** Corrige el nombre que le pusiste a un contacto en tu libreta (ver ADR de contactos). */
+  renameContact: (contactId: ContactId, displayName: string) => Promise<{ error: string | null }>;
 }
 
 /**
@@ -82,6 +84,17 @@ export function useContacts(): ContactsController {
     void contactActions.deleteContactRemote(contactId);
   }, []);
 
+  const renameContact = useCallback(async (contactId: ContactId, displayName: string) => {
+    const result = await contactActions.updateContactDisplayName(contactId, displayName);
+    if (!result.error) {
+      const trimmed = displayName.trim();
+      setContacts((prev) =>
+        prev.map((contact) => (contact.id === contactId ? { ...contact, displayName: trimmed } : contact)),
+      );
+    }
+    return result;
+  }, []);
+
   return {
     isLoading,
     allContacts,
@@ -92,5 +105,6 @@ export function useContacts(): ContactsController {
     addManualContact,
     inviteContact,
     deleteContact,
+    renameContact,
   };
 }

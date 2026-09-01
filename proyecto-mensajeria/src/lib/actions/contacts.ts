@@ -184,3 +184,20 @@ export async function inviteContactRemote(ownerId: UserId, contactId: ContactId)
 export async function deleteContactRemote(contactId: ContactId): Promise<void> {
   await supabase.from("contacts").delete().eq("id", contactId);
 }
+
+/**
+ * Renombra un contacto ya guardado — el nombre que el DUEÑO de la libreta le
+ * puso (`contacts.display_name`), independiente del nombre real de perfil de
+ * esa persona. Real gap encontrado 2026-08-31: no existía forma de corregir
+ * un nombre mal escrito o distinto al que usa el asistente de voz para
+ * buscar contactos (`resolveChatByContactName` busca por este mismo campo).
+ */
+export async function updateContactDisplayName(
+  contactId: ContactId,
+  displayName: string,
+): Promise<{ error: string | null }> {
+  const name = displayName.trim();
+  if (!name) return { error: "El nombre no puede quedar vacío." };
+  const { error } = await supabase.from("contacts").update({ display_name: name }).eq("id", contactId);
+  return { error: error?.message ?? null };
+}
