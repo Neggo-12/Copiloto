@@ -37,9 +37,7 @@ export function useEmergencyAdmin() {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await backend.get<AdminEmergencyVehicleRow[]>(
-        "/emergency/admin/vehicles",
-      );
+      const data = await backend.get<AdminEmergencyVehicleRow[]>("/emergency/admin/vehicles");
       setVehicles(data);
       setAccess("granted");
       setError(null);
@@ -48,9 +46,7 @@ export function useEmergencyAdmin() {
         setAccess("denied");
       } else {
         setAccess("denied");
-        setError(
-          err instanceof Error ? err.message : "No se pudo cargar el panel.",
-        );
+        setError(err instanceof Error ? err.message : "No se pudo cargar el panel.");
       }
     }
   }, []);
@@ -70,8 +66,7 @@ export function useEmergencyAdmin() {
       if (!result.assigned) {
         return {
           ok: false,
-          message:
-            "No existe ningún usuario registrado con ese teléfono todavía.",
+          message: "No existe ningún usuario registrado con ese teléfono todavía.",
         };
       }
       await refresh();

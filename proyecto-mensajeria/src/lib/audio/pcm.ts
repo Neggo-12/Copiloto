@@ -51,11 +51,7 @@ export function int16ToFloat32(int16: Int16Array): Float32Array<ArrayBuffer> {
  * (`ScriptProcessorNode.onaudioprocess` corre en tiempo real, no puede
  * bloquear).
  */
-function onePoleLowPass(
-  float32: Float32Array,
-  sampleRate: number,
-  cutoffHz: number,
-): Float32Array {
+function onePoleLowPass(float32: Float32Array, sampleRate: number, cutoffHz: number): Float32Array {
   const rc = 1 / (2 * Math.PI * cutoffHz);
   const dt = 1 / sampleRate;
   const alpha = dt / (rc + dt);
@@ -107,11 +103,7 @@ export function downsampleTo(
     const nextOffsetSource = Math.round((offsetResult + 1) * ratio);
     let accum = 0;
     let count = 0;
-    for (
-      let i = offsetSource;
-      i < nextOffsetSource && i < filtered.length;
-      i++
-    ) {
+    for (let i = offsetSource; i < nextOffsetSource && i < filtered.length; i++) {
       accum += filtered[i] ?? 0;
       count++;
     }
@@ -151,10 +143,7 @@ export function base64ToInt16Array(base64: string): Int16Array {
 }
 
 /** Extrae la tasa real de un `mimeType` tipo `"audio/pcm;rate=24000"` (formato real verificado contra la respuesta del servidor, ver ADR-0034). `fallback` si no trae `rate=`. */
-export function parseSampleRateFromMimeType(
-  mimeType: string,
-  fallback = 24000,
-): number {
+export function parseSampleRateFromMimeType(mimeType: string, fallback = 24000): number {
   const match = /rate=(\d+)/.exec(mimeType);
   return match ? Number(match[1]) : fallback;
 }

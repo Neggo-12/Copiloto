@@ -8,8 +8,7 @@ import {
 } from "@/lib/backend/client";
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
-export type GeoStatus =
-  "idle" | "watching" | "denied" | "unsupported" | "error";
+export type GeoStatus = "idle" | "watching" | "denied" | "unsupported" | "error";
 
 export interface ReminderTriggerEvent {
   id: string;
@@ -103,18 +102,13 @@ const AMBULANCE_POLL_INTERVAL_MS = 8000;
  * corredor periódicamente (`GET /emergency/corridor/candidates`).
  */
 export function useCopilotoRealtime(): CopilotoRealtimeState {
-  const [connectionStatus, setConnectionStatus] =
-    useState<ConnectionStatus>("idle");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
   const [alerts, setAlerts] = useState<CorridorAlertEvent[]>([]);
   const [closedNotices, setClosedNotices] = useState<CorridorClosedEvent[]>([]);
-  const [reminderTriggers, setReminderTriggers] = useState<
-    ReminderTriggerEvent[]
-  >([]);
-  const [noteReminders, setNoteReminders] = useState<NoteReminderDueEvent[]>(
-    [],
-  );
+  const [reminderTriggers, setReminderTriggers] = useState<ReminderTriggerEvent[]>([]);
+  const [noteReminders, setNoteReminders] = useState<NoteReminderDueEvent[]>([]);
   const [ambulanceView, setAmbulanceView] = useState<AmbulanceView>({
     checked: false,
   });
@@ -149,9 +143,7 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
       socket.on("connect_error", (err: Error) => {
         if (cancelled) return;
         setConnectionStatus("error");
-        setConnectionError(
-          err.message || "No se pudo conectar con el backend.",
-        );
+        setConnectionError(err.message || "No se pudo conectar con el backend.");
       });
 
       socket.on("error", (payload: { message?: string }) => {
@@ -171,26 +163,17 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
         }) => {
           if (cancelled) return;
           setAlerts((prev) =>
-            [
-              { ...payload, receivedAt: new Date().toISOString() },
-              ...prev,
-            ].slice(0, 20),
+            [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
           );
         },
       );
 
       socket.on(
         "corridor:closed",
-        (payload: {
-          ambulanceDriverId: string;
-          reason: CorridorCloseReason;
-        }) => {
+        (payload: { ambulanceDriverId: string; reason: CorridorCloseReason }) => {
           if (cancelled) return;
           setClosedNotices((prev) =>
-            [
-              { ...payload, receivedAt: new Date().toISOString() },
-              ...prev,
-            ].slice(0, 20),
+            [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
           );
         },
       );
@@ -200,10 +183,7 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
         (payload: { id: string; title: string | null; message: string }) => {
           if (cancelled) return;
           setNoteReminders((prev) =>
-            [
-              { ...payload, receivedAt: new Date().toISOString() },
-              ...prev,
-            ].slice(0, 20),
+            [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
           );
         },
       );
@@ -227,31 +207,21 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
               heading: position.coords.heading,
               clientTimestamp: position.timestamp,
             },
-            (ack: {
-              accepted: boolean;
-              remindersTriggered?: ReminderTriggerEvent[];
-            }) => {
-              if (
-                cancelled ||
-                !ack?.accepted ||
-                !ack.remindersTriggered?.length
-              )
-                return;
+            (ack: { accepted: boolean; remindersTriggered?: ReminderTriggerEvent[] }) => {
+              if (cancelled || !ack?.accepted || !ack.remindersTriggered?.length) return;
               const receivedAt = new Date().toISOString();
               setReminderTriggers((prev) =>
-                [
-                  ...ack.remindersTriggered!.map((t) => ({ ...t, receivedAt })),
-                  ...prev,
-                ].slice(0, 20),
+                [...ack.remindersTriggered!.map((t) => ({ ...t, receivedAt })), ...prev].slice(
+                  0,
+                  20,
+                ),
               );
             },
           );
         },
         (geoError) => {
           if (cancelled) return;
-          setGeoStatus(
-            geoError.code === geoError.PERMISSION_DENIED ? "denied" : "error",
-          );
+          setGeoStatus(geoError.code === geoError.PERMISSION_DENIED ? "denied" : "error");
         },
         { enableHighAccuracy: false, maximumAge: 10_000, timeout: 15_000 },
       );
@@ -326,18 +296,14 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
    * polling normal de 8s ya lo haría, pero esperar hasta 8s después de que
    * el conductor tocó "Finalizar" se sentiría roto.
    */
-  async function closeAmbulanceCorridor(
-    reason: "completed" | "cancelled",
-  ): Promise<void> {
+  async function closeAmbulanceCorridor(reason: "completed" | "cancelled"): Promise<void> {
     await backend.post<{
       closed: true;
       reason: CorridorCloseReason;
       notified: string[];
     }>("/emergency/corridor/close", { reason });
     try {
-      const next = await backend.get<CorridorCandidatesResponse>(
-        "/emergency/corridor/candidates",
-      );
+      const next = await backend.get<CorridorCandidatesResponse>("/emergency/corridor/candidates");
       setAmbulanceView({
         checked: true,
         isAmbulance: true,
