@@ -3,9 +3,19 @@ import type { ReactNode } from "react";
 import { PhoneScreen } from "@/components/shared/PhoneScreen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Ambulance, Car, Helmet, ShieldCheck, Wifi, WifiOff } from "@/components/shared/icons";
+import {
+  Ambulance,
+  Car,
+  Helmet,
+  ShieldCheck,
+  Wifi,
+  WifiOff,
+} from "@/components/shared/icons";
 import { formatClock } from "@/lib/format";
-import type { CopilotoRealtimeState, CorridorSeverity } from "@/hooks/useCopilotoRealtime";
+import type {
+  CopilotoRealtimeState,
+  CorridorSeverity,
+} from "@/hooks/useCopilotoRealtime";
 
 const CHANNEL_LABEL: Record<string, { label: string; icon: typeof Car }> = {
   visual_audio: { label: "Visual + sonido (carro)", icon: Car },
@@ -16,7 +26,11 @@ const CHANNEL_LABEL: Record<string, { label: string; icon: typeof Car }> = {
 /** Espejo de la lógica de `severityFor` en el backend (ADR-0021) — relativa al buffer dinámico del momento, no a metros fijos. */
 const SEVERITY_LABEL: Record<
   CorridorSeverity,
-  { label: string; badgeVariant: "destructive" | "secondary" | "outline"; className?: string }
+  {
+    label: string;
+    badgeVariant: "destructive" | "secondary" | "outline";
+    className?: string;
+  }
 > = {
   critical: { label: "Crítico", badgeVariant: "destructive" },
   warning: {
@@ -45,9 +59,18 @@ export function EmergenciaScreen({
   tabBar: ReactNode;
   subNav?: ReactNode;
 }) {
-  const { connectionStatus, connectionError, geoStatus, alerts, closedNotices, ambulanceView, closeAmbulanceCorridor } =
-    realtime;
-  const [closing, setClosing] = useState<"completed" | "cancelled" | null>(null);
+  const {
+    connectionStatus,
+    connectionError,
+    geoStatus,
+    alerts,
+    closedNotices,
+    ambulanceView,
+    closeAmbulanceCorridor,
+  } = realtime;
+  const [closing, setClosing] = useState<"completed" | "cancelled" | null>(
+    null,
+  );
   const [closeError, setCloseError] = useState<string | null>(null);
 
   async function handleClose(reason: "completed" | "cancelled") {
@@ -57,7 +80,11 @@ export function EmergenciaScreen({
     try {
       await closeAmbulanceCorridor(reason);
     } catch (err) {
-      setCloseError(err instanceof Error ? err.message : "No se pudo finalizar el traslado.");
+      setCloseError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo finalizar el traslado.",
+      );
     } finally {
       setClosing(null);
     }
@@ -77,15 +104,17 @@ export function EmergenciaScreen({
             {connectionStatus === "connected" &&
               "Conectado en tiempo real al corredor de emergencia."}
             {connectionStatus === "connecting" && "Conectando..."}
-            {connectionStatus === "error" && (connectionError ?? "No se pudo conectar.")}
+            {connectionStatus === "error" &&
+              (connectionError ?? "No se pudo conectar.")}
             {connectionStatus === "idle" && "Sin conectar."}
           </span>
         </div>
 
         {geoStatus === "denied" && (
           <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-[13px] text-amber-700 dark:text-amber-400">
-            Sin permiso de ubicación — actívalo para que puedan avisarte si una ambulancia se
-            acerca, y para que las ambulancias te vean si tú manejas una.
+            Sin permiso de ubicación — actívalo para que puedan avisarte si una
+            ambulancia se acerca, y para que las ambulancias te vean si tú
+            manejas una.
           </p>
         )}
         {geoStatus === "unsupported" && (
@@ -95,18 +124,21 @@ export function EmergenciaScreen({
         )}
 
         {!ambulanceView.checked && (
-          <p className="text-[13px] text-muted-foreground">Verificando tu rol...</p>
+          <p className="text-[13px] text-muted-foreground">
+            Verificando tu rol...
+          </p>
         )}
 
         {ambulanceView.checked && ambulanceView.isAmbulance && (
           <div className="space-y-2">
             <p className="flex items-center gap-2 text-[14px] font-medium">
-              <Ambulance className="size-5 text-destructive" /> Vista de conductor de ambulancia
+              <Ambulance className="size-5 text-destructive" /> Vista de
+              conductor de ambulancia
             </p>
             {!ambulanceView.data?.hasActiveRoute && (
               <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
-                No tienes una ruta activa — arranca una en Navegación para ver candidatos reales
-                aquí.
+                No tienes una ruta activa — arranca una en Navegación para ver
+                candidatos reales aquí.
               </p>
             )}
             {ambulanceView.data?.hasActiveRoute && (
@@ -119,7 +151,9 @@ export function EmergenciaScreen({
                     disabled={closing !== null}
                     onClick={() => void handleClose("completed")}
                   >
-                    {closing === "completed" ? "Finalizando…" : "Llegué / Finalizar"}
+                    {closing === "completed"
+                      ? "Finalizando…"
+                      : "Llegué / Finalizar"}
                   </Button>
                   <Button
                     variant="outline"
@@ -128,7 +162,9 @@ export function EmergenciaScreen({
                     disabled={closing !== null}
                     onClick={() => void handleClose("cancelled")}
                   >
-                    {closing === "cancelled" ? "Cancelando…" : "Cancelar traslado"}
+                    {closing === "cancelled"
+                      ? "Cancelando…"
+                      : "Cancelar traslado"}
                   </Button>
                 </div>
                 {closeError && (
@@ -138,11 +174,12 @@ export function EmergenciaScreen({
                 )}
               </>
             )}
-            {ambulanceView.data?.hasActiveRoute && ambulanceView.data.candidates.length === 0 && (
-              <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
-                Ruta activa, sin candidatos cerca por ahora.
-              </p>
-            )}
+            {ambulanceView.data?.hasActiveRoute &&
+              ambulanceView.data.candidates.length === 0 && (
+                <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
+                  Ruta activa, sin candidatos cerca por ahora.
+                </p>
+              )}
             {ambulanceView.data?.candidates.map((candidate) => {
               const severity = SEVERITY_LABEL[candidate.severity];
               return (
@@ -154,7 +191,10 @@ export function EmergenciaScreen({
                     Usuario {candidate.userId.slice(0, 8)}…
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <Badge variant={severity.badgeVariant} className={severity.className}>
+                    <Badge
+                      variant={severity.badgeVariant}
+                      className={severity.className}
+                    >
                       {severity.label}
                     </Badge>
                     <Badge variant="outline">{candidate.distanceMeters}m</Badge>
@@ -170,14 +210,18 @@ export function EmergenciaScreen({
             <p className="text-[14px] font-medium">Alertas recibidas</p>
             {alerts.length === 0 && (
               <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
-                Aún no ha llegado ninguna alerta real en esta sesión — aparecerán aquí en cuanto una
-                ambulancia verificada se acerque mientras reportas tu ubicación.
+                Aún no ha llegado ninguna alerta real en esta sesión —
+                aparecerán aquí en cuanto una ambulancia verificada se acerque
+                mientras reportas tu ubicación.
               </p>
             )}
             {alerts.map((alert, index) => {
-              const channel = CHANNEL_LABEL[alert.recommendedChannel] ?? CHANNEL_LABEL["default"]!;
+              const channel =
+                CHANNEL_LABEL[alert.recommendedChannel] ??
+                CHANNEL_LABEL["default"]!;
               const Icon = channel.icon;
-              const severity = SEVERITY_LABEL[alert.severity] ?? SEVERITY_LABEL.info;
+              const severity =
+                SEVERITY_LABEL[alert.severity] ?? SEVERITY_LABEL.info;
               return (
                 <div
                   key={`${alert.ambulanceDriverId}-${alert.receivedAt}-${index}`}
@@ -189,12 +233,16 @@ export function EmergenciaScreen({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <p className="text-[14px] font-medium">{alert.message}</p>
-                      <Badge variant={severity.badgeVariant} className={severity.className}>
+                      <Badge
+                        variant={severity.badgeVariant}
+                        className={severity.className}
+                      >
                         {severity.label}
                       </Badge>
                     </div>
                     <p className="text-[12px] text-muted-foreground">
-                      A {alert.distanceMeters}m · {formatClock(alert.receivedAt)}
+                      A {alert.distanceMeters}m ·{" "}
+                      {formatClock(alert.receivedAt)}
                     </p>
                     <p className="mt-1 flex items-center gap-1 text-[12px] text-primary">
                       <Icon className="size-3.5" /> {channel.label}
@@ -212,7 +260,9 @@ export function EmergenciaScreen({
                   <ShieldCheck className="size-4" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium">Ya pasó, gracias por facilitar el paso.</p>
+                  <p className="text-[13px] font-medium">
+                    Ya pasó, gracias por facilitar el paso.
+                  </p>
                   <p className="text-[12px] text-muted-foreground">
                     {formatClock(notice.receivedAt)}
                     {notice.reason === "expired" && " · traslado finalizado"}

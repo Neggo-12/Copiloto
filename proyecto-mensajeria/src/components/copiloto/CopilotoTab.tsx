@@ -9,7 +9,8 @@ import { NotificacionesScreen } from "./NotificacionesScreen";
 import { AsistenteVozScreen } from "./AsistenteVozScreen";
 import { AdminAmbulanciasScreen } from "./AdminAmbulanciasScreen";
 
-export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones" | "voz" | "admin";
+export type CopilotoSubTab =
+  "modo" | "emergencia" | "notificaciones" | "voz" | "admin";
 
 const SUB_TABS: { key: CopilotoSubTab; label: string }[] = [
   { key: "modo", label: "Modo" },
@@ -66,13 +67,33 @@ export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
 
   switch (subTab) {
     case "modo":
-      return <ModoManejoScreen controller={drivingMode} tabBar={tabBar} subNav={subNav} />;
+      return (
+        <ModoManejoScreen
+          controller={drivingMode}
+          tabBar={tabBar}
+          subNav={subNav}
+        />
+      );
     case "emergencia":
-      return <EmergenciaScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />;
+      return (
+        <EmergenciaScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />
+      );
     case "notificaciones":
-      return <NotificacionesScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />;
+      return (
+        <NotificacionesScreen
+          realtime={realtime}
+          tabBar={tabBar}
+          subNav={subNav}
+        />
+      );
     case "voz":
-      return <AsistenteVozScreen controller={voiceSession} tabBar={tabBar} subNav={subNav} />;
+      return (
+        <AsistenteVozScreen
+          controller={voiceSession}
+          tabBar={tabBar}
+          subNav={subNav}
+        />
+      );
     case "admin":
       return <AdminAmbulanciasScreen tabBar={tabBar} subNav={subNav} />;
   }

@@ -19,7 +19,14 @@ import { AlertPolicyService } from "./alert-policy.service";
  */
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
-/** `jobId` fijo a propósito: BullMQ identifica un repeatable por `name` + opciones de `repeat` + `jobId` — con los tres iguales, reiniciar el backend (cada deploy, cada restart) NO crea un segundo barrido corriendo en paralelo. */
+/**
+ * Id fijo del scheduler a propósito: `queue.upsertJobScheduler(id, ...)` es
+ * un upsert real (BullMQ v6 — `repeat` en `queue.add()` fue removido de
+ * `JobsOptions`, confirmado contra los tipos reales instalados, no
+ * adivinado) — con el mismo id, reiniciar el backend (cada deploy, cada
+ * restart) reemplaza la programación existente en vez de crear un segundo
+ * barrido corriendo en paralelo.
+ */
 const SWEEP_JOB_ID = "corridor-expiry-sweep";
 
 /**
@@ -42,11 +49,10 @@ export class CorridorExpirySweepProcessor extends WorkerHost implements OnModule
   }
 
   async onModuleInit(): Promise<void> {
-    await this.queue.add(
-      EMERGENCY_ALERTS_JOB_NAMES.CORRIDOR_EXPIRY_SWEEP,
-      {},
-      { jobId: SWEEP_JOB_ID, repeat: { every: SWEEP_INTERVAL_MS } },
-    );
+    await this.queue.upsertJobScheduler(SWEEP_JOB_ID, { every: SWEEP_INTERVAL_MS }, {
+      name: EMERGENCY_ALERTS_JOB_NAMES.CORRIDOR_EXPIRY_SWEEP,
+      data: {},
+    });
   }
 
   async process(

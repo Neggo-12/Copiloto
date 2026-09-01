@@ -37,7 +37,9 @@ export function useEmergencyAdmin() {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await backend.get<AdminEmergencyVehicleRow[]>("/emergency/admin/vehicles");
+      const data = await backend.get<AdminEmergencyVehicleRow[]>(
+        "/emergency/admin/vehicles",
+      );
       setVehicles(data);
       setAccess("granted");
       setError(null);
@@ -46,7 +48,9 @@ export function useEmergencyAdmin() {
         setAccess("denied");
       } else {
         setAccess("denied");
-        setError(err instanceof Error ? err.message : "No se pudo cargar el panel.");
+        setError(
+          err instanceof Error ? err.message : "No se pudo cargar el panel.",
+        );
       }
     }
   }, []);
@@ -55,19 +59,28 @@ export function useEmergencyAdmin() {
     void refresh();
   }, [refresh]);
 
-  async function assign(form: AssignAmbulanceForm): Promise<{ ok: true } | { ok: false; message: string }> {
+  async function assign(
+    form: AssignAmbulanceForm,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     try {
-      const result = await backend.post<{ assigned: boolean; error?: "driver_not_found" }>(
-        "/emergency/admin/vehicles",
-        form,
-      );
+      const result = await backend.post<{
+        assigned: boolean;
+        error?: "driver_not_found";
+      }>("/emergency/admin/vehicles", form);
       if (!result.assigned) {
-        return { ok: false, message: "No existe ningún usuario registrado con ese teléfono todavía." };
+        return {
+          ok: false,
+          message:
+            "No existe ningún usuario registrado con ese teléfono todavía.",
+        };
       }
       await refresh();
       return { ok: true };
     } catch (err) {
-      return { ok: false, message: err instanceof Error ? err.message : "No se pudo asignar." };
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : "No se pudo asignar.",
+      };
     }
   }
 

@@ -17,7 +17,13 @@ import { useEmergencyAdmin } from "@/hooks/useEmergencyAdmin";
  * cualquier usuario que no sea el administrador ve "Sin acceso" real (403
  * real del servidor), nunca un error genérico que sugiera que es un bug.
  */
-export function AdminAmbulanciasScreen({ tabBar, subNav }: { tabBar: ReactNode; subNav?: ReactNode }) {
+export function AdminAmbulanciasScreen({
+  tabBar,
+  subNav,
+}: {
+  tabBar: ReactNode;
+  subNav?: ReactNode;
+}) {
   const { access, vehicles, error, assign, setActive } = useEmergencyAdmin();
   const [phone, setPhone] = useState("");
   const [phoneCountryCode, setPhoneCountryCode] = useState("CO");
@@ -37,7 +43,7 @@ export function AdminAmbulanciasScreen({ tabBar, subNav }: { tabBar: ReactNode; 
       phone: phone.startsWith("+") ? phone : `+${phone}`,
       phoneCountryCode,
       plate,
-      organization: organization || undefined,
+      ...(organization ? { organization } : {}),
     });
     setSubmitting(false);
     if (result.ok) {
@@ -51,11 +57,17 @@ export function AdminAmbulanciasScreen({ tabBar, subNav }: { tabBar: ReactNode; 
   }
 
   return (
-    <PhoneScreen title="Admin · Ambulancias" showThemeToggle className="justify-between">
+    <PhoneScreen
+      title="Admin · Ambulancias"
+      showThemeToggle
+      className="justify-between"
+    >
       {subNav}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4">
         {access === "checking" && (
-          <p className="text-[13px] text-muted-foreground">Verificando acceso...</p>
+          <p className="text-[13px] text-muted-foreground">
+            Verificando acceso...
+          </p>
         )}
 
         {access === "denied" && (
@@ -67,20 +79,31 @@ export function AdminAmbulanciasScreen({ tabBar, subNav }: { tabBar: ReactNode; 
 
         {access === "granted" && (
           <>
-            <form onSubmit={(e) => void handleSubmit(e)} className="space-y-2 rounded-2xl border border-border bg-card p-3">
-              <p className="text-[14px] font-medium">Verificar nueva ambulancia</p>
+            <form
+              onSubmit={(e) => void handleSubmit(e)}
+              className="space-y-2 rounded-2xl border border-border bg-card p-3"
+            >
+              <p className="text-[14px] font-medium">
+                Verificar nueva ambulancia
+              </p>
               <div className="flex gap-2">
                 <div className="w-20 space-y-1">
-                  <Label htmlFor="admin-cc" className="text-[12px]">País</Label>
+                  <Label htmlFor="admin-cc" className="text-[12px]">
+                    País
+                  </Label>
                   <Input
                     id="admin-cc"
                     value={phoneCountryCode}
-                    onChange={(e) => setPhoneCountryCode(e.target.value.toUpperCase())}
+                    onChange={(e) =>
+                      setPhoneCountryCode(e.target.value.toUpperCase())
+                    }
                     maxLength={2}
                   />
                 </div>
                 <div className="flex-1 space-y-1">
-                  <Label htmlFor="admin-phone" className="text-[12px]">Teléfono (con +código)</Label>
+                  <Label htmlFor="admin-phone" className="text-[12px]">
+                    Teléfono (con +código)
+                  </Label>
                   <Input
                     id="admin-phone"
                     value={phone}
@@ -90,11 +113,20 @@ export function AdminAmbulanciasScreen({ tabBar, subNav }: { tabBar: ReactNode; 
                 </div>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="admin-plate" className="text-[12px]">Placa</Label>
-                <Input id="admin-plate" value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="ABC123" />
+                <Label htmlFor="admin-plate" className="text-[12px]">
+                  Placa
+                </Label>
+                <Input
+                  id="admin-plate"
+                  value={plate}
+                  onChange={(e) => setPlate(e.target.value)}
+                  placeholder="ABC123"
+                />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="admin-org" className="text-[12px]">Organización (opcional)</Label>
+                <Label htmlFor="admin-org" className="text-[12px]">
+                  Organización (opcional)
+                </Label>
                 <Input
                   id="admin-org"
                   value={organization}
@@ -102,15 +134,27 @@ export function AdminAmbulanciasScreen({ tabBar, subNav }: { tabBar: ReactNode; 
                   placeholder="Cruz Roja, hospital, particular..."
                 />
               </div>
-              {formError && <p className="text-[13px] text-destructive">{formError}</p>}
-              {formSuccess && <p className="text-[13px] text-emerald-600 dark:text-emerald-400">{formSuccess}</p>}
-              <Button type="submit" disabled={submitting || !phone || !plate} className="w-full">
+              {formError && (
+                <p className="text-[13px] text-destructive">{formError}</p>
+              )}
+              {formSuccess && (
+                <p className="text-[13px] text-emerald-600 dark:text-emerald-400">
+                  {formSuccess}
+                </p>
+              )}
+              <Button
+                type="submit"
+                disabled={submitting || !phone || !plate}
+                className="w-full"
+              >
                 {submitting ? "Verificando..." : "Verificar y asignar"}
               </Button>
             </form>
 
             <div className="space-y-2">
-              <p className="text-[14px] font-medium">Ambulancias asignadas ({vehicles.length})</p>
+              <p className="text-[14px] font-medium">
+                Ambulancias asignadas ({vehicles.length})
+              </p>
               {vehicles.length === 0 && (
                 <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
                   Ninguna ambulancia asignada todavía.
@@ -138,7 +182,9 @@ export function AdminAmbulanciasScreen({ tabBar, subNav }: { tabBar: ReactNode; 
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => void setActive(vehicle.driverId, !vehicle.active)}
+                      onClick={() =>
+                        void setActive(vehicle.driverId, !vehicle.active)
+                      }
                     >
                       {vehicle.active ? "Desactivar" : "Reactivar"}
                     </Button>
