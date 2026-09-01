@@ -108,10 +108,14 @@ Smoke tests contra Redis real (`redis-server` local, limpiado al terminar),
 
 ## Alcance fuera de este slice
 
-- Escenarios 4–12 del roadmap (vehículo fuera de ruta, GPS con ruido/atraso,
-  desconexión, reconexión WebSocket, corredores que SÍ se cruzan
-  geométricamente, etc.) — se agregan uno a la vez, con evidencia de qué
-  comportamiento real necesitan validar.
+- Escenarios 5–12 del roadmap (GPS con ruido/atraso, desconexión,
+  reconexión WebSocket, corredores que SÍ se cruzan geométricamente, etc.)
+  — se agregan uno a la vez, con evidencia de qué comportamiento real
+  necesitan validar.
+- ~~Recálculo real de ruta cuando la ambulancia se desvía~~ — construido
+  2026-09-01, ver sección "Recálculo real de ruta al detectar desvío" más
+  abajo. El fundador decidió explícitamente construirlo (antes diferido a
+  propósito por el costo real de la API).
 - Métricas de falsos positivos / conflictos perdidos (necesitan verdad de
   terreno explícita, no modelada todavía).
 - UI de simulación en `proyecto-mensajeria` — sin consumidor real todavía.
@@ -210,6 +214,162 @@ algo que no es una garantía real del sistema — lo que sí importa
 (aislamiento) se verificó y quedó documentado arriba, el timing queda solo
 como dato informativo.
 
+## Escenario 4: "vehículo fuera de ruta" (2026-09-01) — dos bugs reales encontrados y corregidos
+
+Cuarto slice. Interpretado para el corredor (no navegación genérica): la
+AMBULANCIA se desvía de su ruta planeada a mitad de trayecto (real:
+tráfico, calle cerrada, decisión del conductor). Pregunta que responde:
+cuando eso pasa, ¿el corredor sigue protegiendo por dónde va la ambulancia
+DE VERDAD, o sigue "protegiendo" el camino abandonado?
+
+**Pieza nueva**: `ambulancePlannedRoutePoints` opcional en
+`SimulationScenario` — si difiere de `ambulance.routePoints`, el vehículo
+se mueve por su posición GPS real pero el corredor registra la ruta
+planeada distinta, igual que en producción real (`RouteSessionService`
+nunca recalcula el polyline solo porque el GPS se alejó de él).
+
+**Bug real #1 (arquitectónico, confirmado leyendo el código antes de
+construir)**: `EmergencyCorridorService.findCandidates` siempre muestreaba
+hacia adelante sobre la ruta PLANEADA original, sin importar cuánto se
+hubiera desviado el GPS real — `location.gateway.ts` ya usa
+`computeDeviation` para avisarle AL CONDUCTOR "te saliste de tu ruta", pero
+nunca dispara nada hacia el corredor. Primera corrida real del escenario:
+el vehículo cerca del camino ABANDONADO seguía recibiendo "protección"
+(falsa alarma), y el vehículo cerca del camino REAL nunca fue alertado (el
+peligro de verdad, sin aviso). **Corrección**: `findCandidates` ahora
+detecta desvío real (mismo `computeDeviation`/60m que ya usa
+`location.gateway.ts`) y cae a proteger el radio alrededor de la posición
+ACTUAL en vez de seguir mirando hacia adelante sobre una ruta abandonada.
+No es una solución completa — no recalcula una ruta nueva (eso es decisión
+del fundador, implica llamar a Google Routes de nuevo con costo real) —
+pero cierra el hueco de seguridad inmediato.
+
+**Bug real #2 (encontrado verificando el fix del #1 — regresión real en
+escenarios 1 y 2, no hipotética)**: al aplicar la corrección de arriba, los
+escenarios 1 y 2 dejaron de detectar candidatos que antes sí detectaban
+(escenario 1: 5→4 alertados únicos; escenario 2: 53→50). Causa raíz:
+`computeDeviation` medía distancia al VÉRTICE más cercano de la ruta, no al
+SEGMENTO — con una ruta de solo 2 puntos (inicio/fin, como estos
+escenarios sintéticos, pero también cualquier tramo recto largo de una
+ruta real de Google con pocos waypoints intermedios), a mitad de camino
+ambos extremos quedan a ~1000m, muy por encima del umbral de 60m, así que
+`computeDeviation` declaraba "fuera de ruta" incluso yendo perfectamente
+sobre la línea. El comentario original de esa función YA marcaba la
+proyección punto-segmento como mejora diferida "si la evidencia de uso
+real muestra que hace falta, no se construye ahora sin esa evidencia" —
+esta regresión real ES esa evidencia. **Corrección**: nueva
+`distanceToPathMeters` en `common/geo/interpolate.ts` (proyección
+punto-segmento real, no solo distancia a vértices), reemplaza el cálculo
+interno de `computeDeviation`. Efecto colateral honesto: esto también
+corrige el comportamiento real de producción en `location.gateway.ts` —
+cualquier conductor en un tramo recto largo de una ruta real pudo haber
+recibido avisos falsos de "te saliste de la ruta" antes de este fix.
+
+**Verificación (real, sin mocks)**: `redis-server` local, `bun run`. 8/8
+casos, incluyendo regresión completa de los escenarios 1, 2 y 3 (sin
+cambios en sus resultados tras ambos fixes) más el escenario 4:
+
+- Antes de la desviación: detección normal (control de cordura).
+- Con el fix: el vehículo cerca del camino REAL (después de la desviación)
+  SÍ es alertado.
+- El control lejano nunca se alerta.
+- Regresión: escenario 1 sigue con 5 alertados únicos, escenario 2 con 53,
+  escenario 3 con el candidato compartido alertado por ambas ambulancias —
+  idénticos a antes de los dos fixes.
+
+`typecheck`/`lint` del backend completo limpios.
+
+## Recálculo real de ruta al detectar desvío (2026-09-01)
+
+El escenario 4 (arriba) cerró el hueco de seguridad inmediato con un
+fallback (proteger el radio alrededor de la posición actual), pero dejó
+documentado a propósito que NO recalculaba una ruta nueva — eso implica
+llamar de nuevo a Google Routes API, con costo real, y quedaba como
+decisión explícita del fundador. El fundador pidió construirlo hoy mismo
+("hay que hacerlo").
+
+**Qué cambió**: `EmergencyCorridorService.findCandidates` ahora, cuando
+detecta desvío (`computeDeviation.offRoute`), intenta primero un recálculo
+REAL contra `RoutingProvider` (el mismo `ROUTING_PROVIDER`/Google Routes
+que ya usa `POST /navigation/route-session` — no se duplicó el binding, se
+importó `NavigationModule` en `EmergencyCorridorModule`) desde la posición
+actual de la ambulancia hasta su destino ORIGINAL (`activeRoute.destination`
+no cambia — el conductor se desvía de CAMINO, no de A DÓNDE va). Si el
+recálculo funciona, sobrescribe la ruta activa en `RouteSessionService` —
+así la siguiente consulta del corredor Y el propio aviso "te saliste de tu
+ruta" al conductor (`location.gateway.ts`, mismo `RouteSessionService`) ya
+ven la ruta corregida, sin recalcular dos veces. Si falla (API caída, sin
+`GOOGLE_MAPS_API_KEY`) o está en cooldown, cae al mismo fallback de radio
+que ya existía — nunca rompe el corredor por un fallo externo.
+
+**Cooldown real (`REROUTE_COOLDOWN_SECONDS = 30`)**: el cliente de la
+ambulancia consulta el corredor cada 5-10s (ver doc de
+`EmergencyCorridorController`); sin cooldown, cada consulta mientras el
+desvío sigue activo dispararía una llamada real (con costo real) a Google
+Routes. Mismo patrón `SET NX EX` que ya usa `AlertPolicyService` para el
+cooldown de alertas — regla del propio proyecto: "no recalcular ni
+notificar innecesariamente".
+
+**Verificación (real, sin mocks, `redis-server` local)**: la única pieza
+externa de pago real es `RoutingProvider` (Google Routes API cuesta dinero
+real por llamada, ver doc de `NavigationController`) — se usó un
+`RoutingProvider` FAKE y determinístico para probar el MECANISMO gratis
+(igual que el resto de la infraestructura, siempre real: Redis,
+`RouteSessionService`, `LocationStateService`, `EmergencyCorridorService`,
+`AlertPolicyService`, todas las clases reales de producción). 15/15 casos:
+
+- Desvío real → se llama al provider exactamente 1 vez, la sesión de ruta
+  queda con un `encodedPolyline` distinto, el candidato cerca del camino
+  REAL se detecta, el candidato cerca del camino abandonado no.
+- El cooldown queda activo en Redis (TTL > 0) tras el recálculo.
+- Segunda consulta inmediata (ya sobre la ruta corregida): no vuelve a
+  llamar al provider.
+- Nuevo desvío dentro de la ventana de cooldown: NO llama al provider de
+  nuevo, cae correctamente al fallback de radio existente.
+- Falla del provider (API caída, simulada): `findCandidates` no lanza
+  excepción, cae al fallback, la ruta activa no se corrompe.
+- Ambulancia que nunca se desvía: el provider de reroute nunca se invoca
+  (cero llamadas de pago innecesarias).
+
+Regresión completa (mismo `redis-server`, motor real `SimulationEngineService`):
+escenario 1 sigue con 5 alertados únicos, escenario 2 con 53, escenario 3
+con el candidato compartido alertado por ambas ambulancias — sin cambios,
+confirmando que el corredor de reroute nunca se activa cuando no hace
+falta. Escenario 4 re-corrido CON el recálculo real activo: el candidato
+cerca del camino real sigue alertado, el control lejano nunca se alerta, y
+desde que se detecta el desvío en adelante no hay alertas NUEVAS sobre el
+camino abandonado (el candidato que sí se alerta cerca de ese camino lo
+hace en el paso 1, ANTES de cualquier desvío — efecto del lookahead amplio
+de `sampleAhead`/2km, no de la lógica de desvío; ver "Fuera de alcance"
+abajo).
+
+`typecheck`/`lint` del backend completo limpios.
+
+**Prueba de humo real contra Google Routes**: no se hizo en este slice —
+implica una llamada real con costo real. Queda disponible para cuando el
+fundador quiera confirmarlo con una ambulancia/ruta real en el ambiente
+de pruebas, con su confirmación explícita antes de disparar la llamada.
+
+**Fuera de alcance de este cambio** (evidencia real encontrada hoy, no
+hipotética, pero NO es parte de lo que se pidió construir):
+`sampleAhead` sigue mirando hasta 2km hacia adelante desde el punto más
+cercano de la ruta (`MAX_LOOKAHEAD_SAMPLES × SAMPLE_DISTANCE_METERS`),
+sin importar cuánto falte de trayecto real. En una ruta sintética corta
+(2km, 2 puntos) eso puede alertar de más a alguien cerca del FINAL de la
+ruta planeada desde el primer paso (antes de que la ambulancia se acerque
+o incluso se desvíe antes de llegar ahí) — y, en el caso simétrico
+opuesto, una vez la posición actual queda más cerca del vértice FINAL que
+del inicial, el ancla de muestreo salta a la distancia acumulada total
+del vértice final en vez de a la proyección real de la posición actual
+sobre el segmento, dejando huecos reales sin cubrir a mitad de tramo (la
+misma familia de bug que ya se corrigió en `computeDeviation` —
+vértice vs. segmento — pero no aplicada todavía a `sampleAhead`). En
+producción esto se diluye mucho (una polyline real de Google tiene
+decenas de waypoints, no 2), pero es un límite real, no solo del
+simulador. No se corrige en este cambio (no era lo pedido y agregaría
+alcance no solicitado) — queda anotado para si el fundador pide
+priorizarlo con evidencia real de que hace falta.
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
@@ -217,5 +377,9 @@ como dato informativo.
 - `backend/src/modules/simulation/`, `backend/src/common/geo/interpolate.ts`, `backend/src/common/geo/polyline.ts` (`encodePolyline`)
 - `backend/src/modules/simulation/scenarios/scenario-2-single-ambulance-100-vehicles.ts`
 - `backend/src/modules/simulation/scenarios/scenario-3-three-ambulances-simultaneous.ts`
-- `backend/src/modules/emergency-corridor/emergency-corridor.service.ts` (`sampleAhead` corregido)
+- `backend/src/modules/simulation/scenarios/scenario-4-vehicle-off-route.ts`
+- `backend/src/modules/emergency-corridor/emergency-corridor.service.ts` (`sampleAhead` corregido, fallback real por desvío, y ahora `tryReroute` — recálculo real contra Google Routes)
+- `backend/src/modules/emergency-corridor/emergency-corridor.module.ts` (importa `NavigationModule` por `ROUTING_PROVIDER`)
+- `backend/src/modules/route-session/route-deviation.ts` (`computeDeviation` corregido a distancia real de segmento)
+- `backend/src/modules/navigation/providers/routing-provider.interface.ts`, `google-routing.provider.ts` (`RoutingProvider` real, ya existente desde ADR-0010, reusado — no duplicado)
 - `backend/src/modules/location/location-state.service.ts` (`findNearby`, GEOSEARCH)
