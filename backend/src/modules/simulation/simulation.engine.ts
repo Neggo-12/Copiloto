@@ -47,12 +47,17 @@ export class SimulationEngineService {
   async run(scenario: SimulationScenario): Promise<SimulationReport> {
     // Arranca la ruta real de la ambulancia — mismo objeto que crea
     // `POST /navigation/route-session` en producción, con una polyline
-    // sintética codificada con el mismo formato que Google.
-    const encodedPolyline = encodePolyline(scenario.ambulance.routePoints);
-    const totalRouteMeters = pathLengthMeters(scenario.ambulance.routePoints);
+    // sintética codificada con el mismo formato que Google. Normalmente es
+    // la misma que `ambulance.routePoints` (por dónde se mueve el
+    // vehículo); si el escenario define `ambulancePlannedRoutePoints`
+    // distinta, simula que el conductor se desvió de lo planeado — ver
+    // escenario 4 ("vehículo fuera de ruta").
+    const plannedRoutePoints = scenario.ambulancePlannedRoutePoints ?? scenario.ambulance.routePoints;
+    const encodedPolyline = encodePolyline(plannedRoutePoints);
+    const totalRouteMeters = pathLengthMeters(plannedRoutePoints);
     await this.routeSession.start(scenario.ambulance.id, {
-      origin: scenario.ambulance.routePoints[0],
-      destination: scenario.ambulance.routePoints[scenario.ambulance.routePoints.length - 1],
+      origin: plannedRoutePoints[0],
+      destination: plannedRoutePoints[plannedRoutePoints.length - 1],
       encodedPolyline,
       distanceMeters: Math.round(totalRouteMeters),
       durationSeconds: Math.round(totalRouteMeters / scenario.ambulance.speedMps),

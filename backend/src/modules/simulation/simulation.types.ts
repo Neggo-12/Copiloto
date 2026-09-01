@@ -27,6 +27,19 @@ export interface SimulationScenario {
   steps: number;
   ambulance: VirtualVehicleSpec;
   otherVehicles: VirtualVehicleSpec[];
+  /**
+   * Ruta que se registra como "ruta planeada" en `RouteSessionService`
+   * (la que ve el corredor) — si se omite, es la misma que
+   * `ambulance.routePoints` (el vehículo se mueve exactamente por donde el
+   * corredor cree que va). Cuando se especifica y DIFIERE de
+   * `ambulance.routePoints`, simula que el conductor se desvió de la ruta
+   * planeada: el vehículo se mueve por su posición GPS real
+   * (`ambulance.routePoints`) pero el corredor sigue registrando la ruta
+   * planeada distinta — igual que en producción real, donde
+   * `RouteSessionService` nunca recalcula el polyline guardado solo porque
+   * el GPS se alejó de él (ver escenario 4, "vehículo fuera de ruta").
+   */
+  ambulancePlannedRoutePoints?: LatLng[];
 }
 
 export interface SimulationStepResult {
