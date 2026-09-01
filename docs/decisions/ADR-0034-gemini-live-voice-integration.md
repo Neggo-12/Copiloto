@@ -283,6 +283,34 @@ de Copiloto — REUSE del mismo patrón de conexión que `useCopilotoRealtime`
   `AssistantToolsService`/`AssistantModule` junto a las demás tools.
   Pendiente: confirmación por voz real del fundador (agregada, no probada
   todavía en esta sesión).
+- **Barge-in real (interrupción durante Modo conducción manos-libres)**.
+  Gemini Live manda `serverContent.interrupted: true` cuando el usuario
+  empieza a hablar mientras el modelo todavía está generando/reproduciendo
+  su respuesta anterior — esta señal ya existía en la API (mencionada como
+  pendiente en un comentario de una ronda anterior de este ADR) pero no se
+  leía en ningún lado: ni `GeminiLiveService`, ni `AssistantVoiceGateway`,
+  ni el frontend. Efecto real: si el conductor interrumpía al asistente,
+  la respuesta vieja seguía sonando encima de la nueva — justo el
+  comportamiento que "Modo conducción manos-libres" no puede tener (el
+  conductor necesita poder cortar al asistente sin esperar a que termine
+  de hablar). Cambio de tres capas, sin superficie nueva de dominio:
+  1. `GeminiLiveService.handleMessage()` revisa
+     `message.serverContent?.interrupted` independiente del resto del
+     mensaje (puede llegar sin texto/audio propio) y llama al nuevo
+     callback `onInterrupted?: () => void`.
+  2. `AssistantVoiceGateway` reenvía la señal tal cual al cliente:
+     `onInterrupted: () => client.emit("voice:interrupted", {})`.
+  3. `useGeminiVoiceSession` ahora guarda cada `AudioBufferSourceNode`
+     agendado en `activeSourcesRef` (con limpieza en `onended`), y al
+     recibir `voice:interrupted` llama `stopPlayback()`, que corta
+     (`.stop()`, válido tanto en fuentes sonando como agendadas a futuro —
+     comportamiento estándar de Web Audio API) todo lo que quedaba de la
+     respuesta anterior y resetea el cursor de reproducción
+     (`nextPlaybackTimeRef`) al tiempo actual, para que el audio nuevo
+     empiece a agendarse desde ya, no desde donde iba a terminar el viejo.
+  Pendiente, honesto: agregado y con `typecheck`/`lint` limpios, pero
+  todavía sin probar con micrófono real interrumpiendo a mitad de frase —
+  esa es la prueba real pendiente, no antes.
 
 ## Referencias
 

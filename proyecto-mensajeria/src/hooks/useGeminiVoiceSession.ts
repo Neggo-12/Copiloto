@@ -65,6 +65,13 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const nextPlaybackTimeRef = useRef(0);
+  // Fuentes de audio agendadas/sonando de la respuesta actual — se necesita
+  // esta lista para poder cortarlas YA ante un barge-in real (ver
+  // `voice:interrupted` abajo). Antes no se guardaba ninguna referencia:
+  // cada chunk se agendaba y se olvidaba, así que no había forma de
+  // detener lo que ya estaba sonando cuando el usuario interrumpía — la
+  // respuesta vieja seguía hablando encima de la nueva.
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
   const cleanup = useCallback(() => {
     processorRef.current?.disconnect();
@@ -76,8 +83,29 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
     void playbackCtxRef.current?.close();
     playbackCtxRef.current = null;
     nextPlaybackTimeRef.current = 0;
+    activeSourcesRef.current = [];
     socketRef.current?.disconnect();
     socketRef.current = null;
+  }, []);
+
+  /**
+   * Corta YA cualquier audio de la respuesta anterior que siga sonando o
+   * agendado — barge-in real. `.stop()` es válido tanto en una fuente que
+   * ya está sonando como en una agendada a futuro que todavía no arrancó
+   * (comportamiento estándar de `AudioBufferSourceNode`, no supuesto).
+   */
+  const stopPlayback = useCallback(() => {
+    for (const source of activeSourcesRef.current) {
+      try {
+        source.stop();
+      } catch {
+        // Ya se había detenido sola (llegó a su fin natural entre que se
+        // armó esta lista y que se llamó stop) — no es un error real.
+      }
+    }
+    activeSourcesRef.current = [];
+    const ctx = playbackCtxRef.current;
+    if (ctx) nextPlaybackTimeRef.current = ctx.currentTime;
   }, []);
 
   const playChunk = useCallback((base64Data: string, mimeType: string) => {
@@ -96,6 +124,13 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
+    // Se registra ANTES de `.start()` para que `stopPlayback()` la pueda
+    // cortar aunque la interrupción llegue mientras esta fuente todavía
+    // está agendada a futuro, no sonando todavía.
+    activeSourcesRef.current.push(source);
+    source.onended = () => {
+      activeSourcesRef.current = activeSourcesRef.current.filter((s) => s !== source);
+    };
     const startAt = Math.max(ctx.currentTime, nextPlaybackTimeRef.current);
     source.start(startAt);
     nextPlaybackTimeRef.current = startAt + buffer.duration;
@@ -190,6 +225,14 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
       playChunk(payload.data, payload.mimeType);
     });
 
+    // Barge-in real: Gemini mandó `serverContent.interrupted` porque el
+    // usuario empezó a hablar mientras la respuesta anterior todavía se
+    // estaba reproduciendo — cortar YA ese audio, no esperar a que termine
+    // su frase (ver `GeminiLiveCallbacks.onInterrupted` en el backend).
+    socket.on("voice:interrupted", () => {
+      stopPlayback();
+    });
+
     // Bug real ya encontrado y corregido en `AssistantVoiceGateway`: no
     // mandar nada hasta `voice:ready` — `connect` (transporte) dispara
     // antes de que el servidor termine de abrir la sesión de Gemini.
@@ -248,7 +291,7 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
         }
       })();
     });
-  }, [cleanup, playChunk]);
+  }, [cleanup, playChunk, stopPlayback]);
 
   const stop = useCallback(() => {
     socketRef.current?.emit("voice:audio-end");

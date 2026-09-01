@@ -16,6 +16,17 @@ export interface GeminiLiveCallbacks {
    * servidor) — no asumir una tasa fija.
    */
   onAudio?: (base64Data: string, mimeType: string) => void;
+  /**
+   * El usuario empezó a hablar mientras Gemini todavía estaba respondiendo
+   * (barge-in real) — Gemini manda `serverContent.interrupted: true` en ese
+   * momento (confirmado real durante la verificación de ADR-0034, ver
+   * comentario ahí). Hasta ahora este slice recibía la señal pero nunca la
+   * exponía ni el cliente actuaba sobre ella — el audio viejo seguía
+   * reproduciéndose encima de lo nuevo. Modo conducción manos-libres real
+   * necesita esto: si el conductor interrumpe, la respuesta vieja debe
+   * callarse YA, no esperar a que termine su cola de audio.
+   */
+  onInterrupted?: () => void;
   onClose?: () => void;
   onError?: (message: string) => void;
 }
@@ -253,6 +264,14 @@ export class GeminiLiveService {
     // que lee partes de texto de `modelTurn`) siempre viene vacío — el
     // contenido de `modelTurn` es audio. El texto real llega aparte, en la
     // transcripción de salida (ver comentario de clase y config arriba).
+    // Barge-in real (ver comentario de `onInterrupted` en `GeminiLiveCallbacks`):
+    // se revisa independiente del resto — un mensaje de "interrupted" puede
+    // llegar sin texto/audio propio, solo la señal de que hay que cortar lo
+    // que se estaba reproduciendo.
+    if (message.serverContent?.interrupted) {
+      callbacks.onInterrupted?.();
+    }
+
     const text = message.serverContent?.outputTranscription?.text;
     if (text) callbacks.onText?.(text);
 

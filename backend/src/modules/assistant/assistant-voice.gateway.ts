@@ -79,6 +79,10 @@ export class AssistantVoiceGateway implements OnGatewayConnection, OnGatewayDisc
     const session = await this.geminiLive.startSession(userId, {
       onText: (text) => client.emit("voice:text", { text }),
       onAudio: (base64Data, mimeType) => client.emit("voice:audio-chunk", { data: base64Data, mimeType }),
+      // Barge-in real (Modo conducción manos-libres) — ver comentario en
+      // `GeminiLiveCallbacks.onInterrupted`. El cliente usa esto para cortar
+      // YA el audio que ya estaba reproduciendo de la respuesta anterior.
+      onInterrupted: () => client.emit("voice:interrupted", {}),
       onError: (message) => client.emit("voice:error", { message }),
       onClose: () => {
         client.emit("voice:closed", {});
