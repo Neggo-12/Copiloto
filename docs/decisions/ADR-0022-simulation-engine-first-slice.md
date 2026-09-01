@@ -108,18 +108,67 @@ Smoke tests contra Redis real (`redis-server` local, limpiado al terminar),
 
 ## Alcance fuera de este slice
 
-- Escenarios 2–12 del roadmap (varias ambulancias, GPS con ruido, pérdida
-  de conexión, corredores cruzados, etc.) — se agregan uno a la vez, con
-  evidencia de qué comportamiento real necesitan validar.
+- Escenarios 3–12 del roadmap (varias ambulancias simultáneas, vehículo
+  fuera de ruta, GPS con ruido/atraso, desconexión, reconexión WebSocket,
+  corredores cruzados, etc.) — se agregan uno a la vez, con evidencia de qué
+  comportamiento real necesitan validar.
 - Métricas de falsos positivos / conflictos perdidos (necesitan verdad de
   terreno explícita, no modelada todavía).
 - UI de simulación en `proyecto-mensajeria` — sin consumidor real todavía.
-- Vehículos en movimiento variable (aceleración, giros) — el primer slice
-  usa velocidad constante sobre waypoints rectos.
+- Vehículos en movimiento variable (aceleración, giros) — los escenarios 1
+  y 2 usan velocidad constante sobre waypoints rectos.
+
+## Escenario 2: "una ambulancia / 100 vehículos" (2026-09-01)
+
+Segundo slice, Fase 4 recién desbloqueada (Fase 3 — Emergency Corridor —
+cerrada el mismo día). A diferencia del escenario 1 (correctitud con una
+mezcla chica y controlada), este valida **escala**: `LocationStateService.
+findNearby` usa Redis GEOSEARCH por radio, no un escaneo de todos los
+vehículos registrados — así que el costo real no depende del total de
+vehículos en el sistema, depende de cuántos caen DENTRO del buffer en un
+momento dado (cada candidato revalida su estado con un `GET` real a Redis).
+Por eso el escenario no dispersa los 100 vehículos al azar: pone 70
+realmente cerca del corredor, repartidos a lo largo de toda la ruta con la
+mezcla completa de severidades (simulando un tramo con tráfico denso), y 30
+lejos como control negativo — así la latencia reportada mide el caso que de
+verdad importa.
+
+Mismo largo de ruta/velocidad que el escenario 1 (2km a 54km/h) a
+propósito, para poder comparar directamente.
+
+**Verificación (real, sin mocks)**: `redis-server` local, clases reales
+instanciadas a mano (mismas que usa producción vía Nest DI, sin
+reimplementar nada — `LocationStateService`, `RouteSessionService`,
+`EmergencyCorridorService`, `AlertPolicyService`, `SimulationEngineService`),
+`bun run` (nunca `bunx tsx`). 8/8 casos:
+
+- Ningún vehículo de control lejano (`sim100-far-*`) fue alertado en
+  ningún paso.
+- 53 de los 70 vehículos cercanos fueron alertados en algún momento
+  (`uniqueVehiclesAlerted=53`) — el resto quedó fuera del buffer dinámico
+  en todos los pasos, consistente con su posición.
+- Aparecen las 3 severidades (`critical`/`warning`/`info`) en distintos
+  pasos.
+- Determinismo confirmado: dos corridas producen exactamente el mismo
+  patrón de candidatos detectados por paso.
+- Corredor cerrado y limpio al terminar (sin ambulancia activa residual,
+  sin set de alertados, sin sesión de ruta).
+- **Latencia real, escenario 1 vs. escenario 2** (10 → 100 vehículos, 10x
+  más): `avgFindCandidatesLatencyMs` pasó de 3.22ms a 8.73ms (2.7x), muy
+  por debajo de un escalado lineal ingenuo — confirma que GEOSEARCH por
+  radio, no un escaneo total, es la decisión correcta para este volumen.
+  Umbral de aceptación usado (generoso a propósito, este slice no es un
+  benchmark fino): <500ms de promedio.
+
+`typecheck`/`lint` del backend completo limpios (0 errores; el único
+warning preexistente en `user-aware-throttler.guard.ts` no tiene relación
+con este cambio).
 
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
 - `docs/decisions/ADR-0021-corridor-dynamic-buffer-severity.md` (nota de corrección agregada)
 - `backend/src/modules/simulation/`, `backend/src/common/geo/interpolate.ts`, `backend/src/common/geo/polyline.ts` (`encodePolyline`)
+- `backend/src/modules/simulation/scenarios/scenario-2-single-ambulance-100-vehicles.ts`
 - `backend/src/modules/emergency-corridor/emergency-corridor.service.ts` (`sampleAhead` corregido)
+- `backend/src/modules/location/location-state.service.ts` (`findNearby`, GEOSEARCH)

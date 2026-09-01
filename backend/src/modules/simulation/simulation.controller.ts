@@ -2,12 +2,14 @@ import { Controller, NotFoundException, Param, Post, UseGuards } from "@nestjs/c
 import { Throttle } from "@nestjs/throttler";
 import { SupabaseAuthGuard } from "../../common/guards/supabase-auth.guard";
 import { SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES } from "./scenarios/scenario-1-single-ambulance-10-vehicles";
+import { SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES } from "./scenarios/scenario-2-single-ambulance-100-vehicles";
 import { SimulationEngineService } from "./simulation.engine";
 import type { SimulationScenario } from "./simulation.types";
 
 /** Registro de escenarios disponibles — se agrega una entrada por cada nuevo escenario de Etapa 7 (roadmap) a medida que se construyen, no todos de una vez (regla del proyecto: sin complejidad sin evidencia). */
 const SCENARIOS: Record<string, SimulationScenario> = {
   [SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES.name]: SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES,
+  [SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES.name]: SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES,
 };
 
 /**
