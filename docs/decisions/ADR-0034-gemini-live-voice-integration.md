@@ -132,16 +132,8 @@ de Copiloto — REUSE del mismo patrón de conexión que `useCopilotoRealtime`
     hoy es un botón que hay que tocar y sostener la pantalla abierta,
     suficiente para verificar el pipeline técnico, no para usarlo real
     manejando.
-  - **Downsampling naive** (`lib/audio/pcm.ts`): decimación por promedio,
-    no resample con filtro anti-aliasing — funcionó para la primera
-    prueba real, pero si la calidad de audio resulta mala en uso
-    prolongado, esto es lo primero a mejorar.
   - **`ScriptProcessorNode`**, no `AudioWorkletNode` — API deprecada pero
     universal; sin evidencia todavía de que haga falta migrar.
-  - **Interrupciones/VAD del lado del cliente** — si el usuario habla
-    mientras Gemini está respondiendo, hoy no hay lógica de barge-in
-    explícita del lado del frontend (Gemini sí manda `interrupted` en
-    `serverContent`, pero el cliente todavía no actúa sobre eso).
   - Sin prueba en dispositivo móvil real ni manejando de verdad — solo
     navegador de escritorio.
 
@@ -308,9 +300,31 @@ de Copiloto — REUSE del mismo patrón de conexión que `useCopilotoRealtime`
      respuesta anterior y resetea el cursor de reproducción
      (`nextPlaybackTimeRef`) al tiempo actual, para que el audio nuevo
      empiece a agendarse desde ya, no desde donde iba a terminar el viejo.
-  Pendiente, honesto: agregado y con `typecheck`/`lint` limpios, pero
-  todavía sin probar con micrófono real interrumpiendo a mitad de frase —
-  esa es la prueba real pendiente, no antes.
+  Confirmado real por el fundador el mismo día, interrumpiendo con
+  micrófono real a mitad de frase: "funciono perfecto".
+- **Downsampling con anti-aliasing real** (`lib/audio/pcm.ts`, 2026-09-01).
+  Gap documentado desde el primer slice de este ADR: `downsampleTo`
+  decimaba por promedio de bloque sin ningún filtro previo — cualquier
+  frecuencia de entrada por encima de la nueva Nyquist (`targetSampleRate
+  / 2`) se pliega hacia abajo como ruido audible real (aliasing) en vez de
+  perderse limpio. Corrección: nueva función `onePoleLowPass` (filtro
+  pasa-bajos de un polo, diseño RC estándar — `alpha = dt/(rc+dt)`, `rc =
+  1/(2π·fc)`), aplicada dos veces en cascada (12 dB/octava, suficiente para
+  el caso real sin pagar el costo de una convolución FIR completa dentro
+  de `ScriptProcessorNode.onaudioprocess`, que corre en tiempo real y no
+  puede bloquear) con corte en `targetSampleRate * 0.45`, antes de la
+  decimación existente (que no se tocó). Verificación real, no mock: se
+  aisló la lógica (vieja y nueva) en un proyecto separado y se corrió un
+  test con el algoritmo de Goertzel (mide la energía de una frecuencia
+  específica dentro de una señal) sobre una señal sintética de 48kHz con
+  una componente de voz real (1000Hz) y una componente que debía generar
+  alias real al bajar a 16kHz (10000Hz) — resultado medido:
+  - Energía del alias (6000Hz): 0.3035 → 0.0716 (reducción real del 76.4%).
+  - Energía de la voz real (1000Hz): 0.5966 → 0.5751 (se conserva el
+    96.4%, la pérdida es el precio esperado y aceptado de cualquier filtro
+    real, no ideal).
+  También se corrió `bun build` real sobre el archivo modificado
+  (`--target=browser`) — compila limpio, sin errores.
 
 ## Referencias
 

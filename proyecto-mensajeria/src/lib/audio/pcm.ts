@@ -6,12 +6,9 @@
  * para reproducir de vuelta lo que Gemini manda (mismo formato, tasa real
  * distinta — 24kHz de salida vs. 16kHz de entrada, ver `gemini-live.service.ts`).
  *
- * Honesto: el downsampling de aquí es promediado simple (decimación), no un
- * resample con filtro anti-aliasing real — suficiente para verificar el
- * flujo completo con voz real por primera vez, pero si la calidad de audio
- * sale mala en la prueba real, esto es lo primero a mejorar (no antes, sin
- * evidencia de que haga falta — regla del proyecto de "no complejidad sin
- * evidencia").
+ * Actualizado 2026-09-01 (Fase 6, pendiente que quedó anotado desde el
+ * primer slice): `downsampleTo` ahora aplica un filtro pasa-bajos real
+ * antes de decimar — ver `lowPassFilter` y la nota en `downsampleTo`.
  */
 
 /** Tasa de muestreo que exige Gemini Live para audio de ENTRADA (micrófono) — ver `sendAudioChunk` en `gemini-live.service.ts`. */
@@ -44,11 +41,41 @@ export function int16ToFloat32(int16: Int16Array): Float32Array<ArrayBuffer> {
 }
 
 /**
- * Reduce la tasa de muestreo por decimación con promedio (no interpolación
- * real) — agrupa N muestras de entrada en 1 de salida, N = tasa
- * entrada/salida. Suficiente para voz (la energía de la voz humana cae
- * mayormente bajo 8kHz), pero no es un resample "correcto" con filtro
- * anti-aliasing. Si `inputSampleRate` ya es la deseada, no hace nada.
+ * Filtro pasa-bajos de un polo (RC/exponential moving average) — diseño
+ * estándar, no inventado: `alpha = dt / (RC + dt)`, `RC = 1 / (2π·fc)`,
+ * aplicado hacia adelante sample-por-sample (`y[n] = y[n-1] + alpha·(x[n] -
+ * y[n-1])`). Se aplica DOS VECES en cascada en `downsampleTo` (12 dB/octava
+ * en vez de 6 dB/octava de un solo polo) — suficiente para atenuar el
+ * contenido por encima de la nueva Nyquist antes de decimar, sin pagar el
+ * costo de una convolución FIR completa en el hilo de audio del navegador
+ * (`ScriptProcessorNode.onaudioprocess` corre en tiempo real, no puede
+ * bloquear).
+ */
+function onePoleLowPass(float32: Float32Array, sampleRate: number, cutoffHz: number): Float32Array {
+  const rc = 1 / (2 * Math.PI * cutoffHz);
+  const dt = 1 / sampleRate;
+  const alpha = dt / (rc + dt);
+  const result = new Float32Array(float32.length);
+  let prev = float32[0] ?? 0;
+  for (let i = 0; i < float32.length; i++) {
+    const sample = float32[i] ?? 0;
+    prev = prev + alpha * (sample - prev);
+    result[i] = prev;
+  }
+  return result;
+}
+
+/**
+ * Reduce la tasa de muestreo: filtra pasa-bajos real (anti-aliasing, ver
+ * `onePoleLowPass`) y LUEGO decima agrupando N muestras filtradas en 1 de
+ * salida por promedio, N = tasa entrada/salida. Antes de este cambio se
+ * decimaba directo sin filtrar — cualquier frecuencia de entrada por
+ * encima de la nueva Nyquist (targetSampleRate/2) se pliega hacia abajo
+ * como ruido audible real (aliasing), en vez de perderse limpio. El corte
+ * del filtro se pone un poco por debajo de la Nyquist exacta
+ * (`0.45 · targetSampleRate` en vez de `0.5 ·`) para dejar margen de
+ * transición real a un filtro de orden bajo, no ideal. Si `inputSampleRate`
+ * ya es la deseada, no hace nada (ni filtra).
  */
 export function downsampleTo(
   float32: Float32Array,
@@ -61,16 +88,19 @@ export function downsampleTo(
       `downsampleTo: la tasa de entrada (${inputSampleRate}) es menor que la deseada (${targetSampleRate}) — esto es un downsampler, no un upsampler.`,
     );
   }
+  const cutoffHz = targetSampleRate * 0.45;
+  const filtered = onePoleLowPass(onePoleLowPass(float32, inputSampleRate, cutoffHz), inputSampleRate, cutoffHz);
+
   const ratio = inputSampleRate / targetSampleRate;
-  const newLength = Math.round(float32.length / ratio);
+  const newLength = Math.round(filtered.length / ratio);
   const result = new Float32Array(newLength);
   let offsetSource = 0;
   for (let offsetResult = 0; offsetResult < newLength; offsetResult++) {
     const nextOffsetSource = Math.round((offsetResult + 1) * ratio);
     let accum = 0;
     let count = 0;
-    for (let i = offsetSource; i < nextOffsetSource && i < float32.length; i++) {
-      accum += float32[i] ?? 0;
+    for (let i = offsetSource; i < nextOffsetSource && i < filtered.length; i++) {
+      accum += filtered[i] ?? 0;
       count++;
     }
     result[offsetResult] = count > 0 ? accum / count : 0;
