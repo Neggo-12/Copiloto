@@ -125,6 +125,21 @@ export class SimulationEngineService {
 
     return report;
   }
+
+  /**
+   * Corre varios escenarios de una ambulancia cada uno, EN PARALELO REAL
+   * (`Promise.all`) contra el mismo Redis — escenario 3 del roadmap: "tres
+   * ambulancias simultáneas". No reimplementa nada: cada escenario corre
+   * exactamente el mismo `run()` que uno individual. Lo que este método
+   * pone a prueba es que las claves de Redis de cada ambulancia
+   * (`corridor:active-ambulances` como SET compartido, `corridor:alerted:
+   * <id>` y el cooldown por par, ambos ya con el `ambulanceDriverId` en la
+   * clave) quedan realmente aisladas cuando las operaciones se intercalan
+   * de verdad entre ambulancias, no cuando corren una detrás de otra.
+   */
+  async runConcurrent(scenarios: SimulationScenario[]): Promise<SimulationReport[]> {
+    return Promise.all(scenarios.map((scenario) => this.run(scenario)));
+  }
 }
 
 /**

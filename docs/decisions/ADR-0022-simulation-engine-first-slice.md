@@ -108,15 +108,15 @@ Smoke tests contra Redis real (`redis-server` local, limpiado al terminar),
 
 ## Alcance fuera de este slice
 
-- Escenarios 3–12 del roadmap (varias ambulancias simultáneas, vehículo
-  fuera de ruta, GPS con ruido/atraso, desconexión, reconexión WebSocket,
-  corredores cruzados, etc.) — se agregan uno a la vez, con evidencia de qué
+- Escenarios 4–12 del roadmap (vehículo fuera de ruta, GPS con ruido/atraso,
+  desconexión, reconexión WebSocket, corredores que SÍ se cruzan
+  geométricamente, etc.) — se agregan uno a la vez, con evidencia de qué
   comportamiento real necesitan validar.
 - Métricas de falsos positivos / conflictos perdidos (necesitan verdad de
   terreno explícita, no modelada todavía).
 - UI de simulación en `proyecto-mensajeria` — sin consumidor real todavía.
-- Vehículos en movimiento variable (aceleración, giros) — los escenarios 1
-  y 2 usan velocidad constante sobre waypoints rectos.
+- Vehículos en movimiento variable (aceleración, giros) — los escenarios 1,
+  2 y 3 usan velocidad constante sobre waypoints rectos.
 
 ## Escenario 2: "una ambulancia / 100 vehículos" (2026-09-01)
 
@@ -164,11 +164,58 @@ reimplementar nada — `LocationStateService`, `RouteSessionService`,
 warning preexistente en `user-aware-throttler.guard.ts` no tiene relación
 con este cambio).
 
+## Escenario 3: "tres ambulancias simultáneas" (2026-09-01)
+
+Tercer slice. A diferencia de los escenarios 1 (correctitud) y 2 (escala),
+este valida **aislamiento**: tres corredores activos al mismo tiempo no
+deben contaminarse entre sí en Redis. Rutas paralelas que NO se cruzan a
+propósito — corredores que sí se cruzan geométricamente es un problema
+distinto, reservado para el escenario 12.
+
+**Pieza nueva**: `SimulationEngineService.runConcurrent(scenarios)` —
+`Promise.all` real sobre el mismo `run()` de siempre, sin reimplementar
+nada. Nuevo tipo `CompoundSimulationScenario` (una lista de escenarios de
+una ambulancia) y un registro/endpoint separado en el controller
+(`POST /simulation/compound-scenarios/:name/run`), mismo criterio de "uno a
+la vez" que el registro de escenarios simples.
+
+Geometría: tres carriles norte-sur paralelos (A en el origen, B a 500m al
+este, C a 550m al este — deliberadamente cerca de B). Un candidato exclusivo
+de A, un candidato COMPARTIDO a medio camino exacto entre B y C (25m de cada
+carril, dentro del buffer crítico de ambas), y un control lejano.
+
+**Verificación (real, sin mocks)**: mismas clases reales instanciadas a
+mano, `redis-server` local, `bun run`. 10/10 casos:
+
+- El candidato exclusivo de A solo aparece alertado por A — nunca por B ni C.
+- El control lejano nunca se alerta en ninguna de las tres.
+- El candidato compartido se alerta de forma **independiente** por B Y por
+  C — confirma que `corridor:alert:<ambulanceId>:<candidateId>` está
+  aislado por PAR (ambulancia, candidato), no se "gasta" en la primera que
+  lo detecta.
+- Al cerrar las tres, ninguna deja residuo en `corridor:active-ambulances`
+  ni en su propio `corridor:alerted:<id>`.
+- Determinismo confirmado en modo concurrente: correr las tres dos veces
+  produce el mismo patrón de candidatos por paso, para cada una.
+
+**Hallazgo honesto de la propia verificación**: la prueba original incluía
+una afirmación de que correr en paralelo (`Promise.all`) sería más rápido
+en reloj de pared que correr las tres una tras otra — resultó FALSO contra
+Redis local (paralelo 82ms vs. secuencial 33ms). Causa real: con latencia
+de red ~0 (Redis en `localhost`), el overhead de manejar 3 cadenas de
+promesas a la vez pesa más que el ahorro de solaparlas; el beneficio real
+de la concurrencia aparece con latencia de red real (Upstash en
+producción, no en este sandbox). Se corrigió la prueba para no afirmar
+algo que no es una garantía real del sistema — lo que sí importa
+(aislamiento) se verificó y quedó documentado arriba, el timing queda solo
+como dato informativo.
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
 - `docs/decisions/ADR-0021-corridor-dynamic-buffer-severity.md` (nota de corrección agregada)
 - `backend/src/modules/simulation/`, `backend/src/common/geo/interpolate.ts`, `backend/src/common/geo/polyline.ts` (`encodePolyline`)
 - `backend/src/modules/simulation/scenarios/scenario-2-single-ambulance-100-vehicles.ts`
+- `backend/src/modules/simulation/scenarios/scenario-3-three-ambulances-simultaneous.ts`
 - `backend/src/modules/emergency-corridor/emergency-corridor.service.ts` (`sampleAhead` corregido)
 - `backend/src/modules/location/location-state.service.ts` (`findNearby`, GEOSEARCH)

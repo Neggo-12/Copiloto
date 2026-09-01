@@ -3,13 +3,19 @@ import { Throttle } from "@nestjs/throttler";
 import { SupabaseAuthGuard } from "../../common/guards/supabase-auth.guard";
 import { SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES } from "./scenarios/scenario-1-single-ambulance-10-vehicles";
 import { SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES } from "./scenarios/scenario-2-single-ambulance-100-vehicles";
+import { SCENARIO_3_THREE_AMBULANCES_SIMULTANEOUS } from "./scenarios/scenario-3-three-ambulances-simultaneous";
 import { SimulationEngineService } from "./simulation.engine";
-import type { SimulationScenario } from "./simulation.types";
+import type { CompoundSimulationScenario, SimulationScenario } from "./simulation.types";
 
 /** Registro de escenarios disponibles — se agrega una entrada por cada nuevo escenario de Etapa 7 (roadmap) a medida que se construyen, no todos de una vez (regla del proyecto: sin complejidad sin evidencia). */
 const SCENARIOS: Record<string, SimulationScenario> = {
   [SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES.name]: SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES,
   [SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES.name]: SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES,
+};
+
+/** Registro separado para escenarios de VARIAS ambulancias (ver `CompoundSimulationScenario`) — mismo criterio de "uno a la vez" que `SCENARIOS`. */
+const COMPOUND_SCENARIOS: Record<string, CompoundSimulationScenario> = {
+  [SCENARIO_3_THREE_AMBULANCES_SIMULTANEOUS.name]: SCENARIO_3_THREE_AMBULANCES_SIMULTANEOUS,
 };
 
 /**
@@ -37,5 +43,18 @@ export class SimulationController {
       );
     }
     return this.engine.run(scenario);
+  }
+
+  /** Mismo rate limit estricto que `run` — cada corrida compuesta hace 3x (o más) las escrituras reales a Redis de una sola. */
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("compound-scenarios/:name/run")
+  async runCompound(@Param("name") name: string) {
+    const scenario = COMPOUND_SCENARIOS[name];
+    if (!scenario) {
+      throw new NotFoundException(
+        `Escenario compuesto "${name}" no existe. Disponibles: ${Object.keys(COMPOUND_SCENARIOS).join(", ")}`,
+      );
+    }
+    return this.engine.runConcurrent(scenario.scenarios);
   }
 }

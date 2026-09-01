@@ -41,6 +41,20 @@ export interface SimulationStepResult {
   severityBreakdown: Record<CorridorSeverity, number>;
 }
 
+/**
+ * Varios escenarios de UNA ambulancia cada uno, pensados para correr en
+ * paralelo real contra el mismo Redis (ver `SimulationEngineService.
+ * runConcurrent` — escenario 3 del roadmap: "tres ambulancias
+ * simultáneas"). No es un tipo de escenario nuevo — es una lista de
+ * `SimulationScenario` normales; lo único que agrega es la garantía de que
+ * se corren concurrentemente, no uno tras otro.
+ */
+export interface CompoundSimulationScenario {
+  name: string;
+  description: string;
+  scenarios: SimulationScenario[];
+}
+
 export interface SimulationReport {
   scenario: string;
   steps: SimulationStepResult[];
