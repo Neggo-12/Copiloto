@@ -75,13 +75,61 @@ documentado en ADR-0018) — 11/11 casos:
 
 ## Alcance fuera de este slice (documentado, no resuelto)
 
-- Buffer dinámico por velocidad de la ambulancia.
-- Estados `ACTIVE_CONFLICT`/`PASSED` (hoy solo existe `potential_conflict`).
-- Severidad `INFO`/`WARNING`/`CRITICAL`.
-- Barrido automático para notificar cierre por expiración silenciosa (4h).
-- Cliente (app) que llame a este endpoint — no existe todavía UI de
-  ambulancia en `proyecto-mensajeria`, solo el consumo de candidatos/alertas
-  del lado del posible afectado (`EmergenciaScreen`, ADR-0019).
+- Buffer dinámico por velocidad de la ambulancia — **cerrado**, ver ADR-0021.
+- Severidad `INFO`/`WARNING`/`CRITICAL` — **cerrado**, ver ADR-0021.
+- Estados `ACTIVE_CONFLICT`/`PASSED` (hoy solo existe `potential_conflict`) —
+  sigue diferido a propósito: necesitan contexto que todavía no existe
+  (velocidad relativa candidato/ambulancia, historial de trayectoria para
+  saber si ya cedió el paso) — construirlos con datos inventados sería
+  adivinar, no una decisión de producto tomada.
+
+## Cierre real 2026-09-01: `expired` + UI de ambulancia
+
+Los dos gaps que quedaban de este ADR (barrido de expiración silenciosa y
+cliente que llame a `close`) se cerraron a pedido explícito del fundador
+("termina con el corredor de emergencia la ambulancia") — antes diferidos
+por regla de "no complejidad sin evidencia", ahora con evidencia real de
+que hacían falta.
+
+**Barrido de expiración** (`AlertPolicyService.sweepExpired`,
+`CorridorExpirySweepProcessor`, cola `EMERGENCY_ALERTS` — reservada desde
+ADR-0008, sin processor hasta hoy): nuevo set `corridor:active-ambulances`
+en Redis, sin TTL propio (lista de membresía, no dato caliente) — se agrega
+en cada `evaluateAndDispatch` real (solo se llama con ruta activa
+confirmada) y se quita en `closeCorridor` sin importar el motivo. Un job
+repetible (BullMQ, `jobId` fijo para que un restart del backend no duplique
+el barrido, cada 15 minutos — de sobra frente al TTL de 4h que detecta)
+revisa ese set: si `RouteSessionService.getActive()` ya no devuelve nada
+para una ambulancia, su corredor quedó "colgado" (app cerrada, viaje
+abandonado, batería agotada) sin que nadie llamara a `/close` — se cierra
+solo, con `reason: "expired"` (nuevo valor de `CorridorCloseReason`),
+avisando `corridor:closed` real a quien alcanzó a alertarse.
+
+**Cliente real**: `EmergenciaScreen.tsx` ahora tiene botones "Llegué /
+Finalizar" y "Cancelar traslado" para el conductor de ambulancia (llaman a
+`POST /emergency/corridor/close` vía el nuevo `closeAmbulanceCorridor` en
+`useCopilotoRealtime`, antes sin ningún caller en el frontend) — y el lado
+del posible afectado ahora escucha `corridor:closed` real y muestra "Ya
+pasó, gracias por facilitar el paso."
+
+Verificado real (Redis local real, mismo método que ADR-0008/0012/0013/
+0020 original — no mock): 9/9 casos — dos ambulancias activas se marcan
+correctas; el barrido detecta solo a la que expiró (ruta ya no existe) y
+deja intacta a la que sigue con ruta real; el set de alertados de la
+expirada se limpia igual que un cierre explícito; un segundo barrido
+inmediato no vuelve a "expirar" a la misma; el cierre explícito normal
+(`completed`) sigue funcionando exactamente igual que antes (no se rompió
+nada existente), incluyendo que cerrar dos veces no lanza error.
+`typecheck`/`lint`/`build` reales quedan pendientes de correr en la
+máquina del fundador (mismo límite de siempre de este entorno).
+
+**Todavía sin resolver, a propósito, gap real encontrado en la misma
+auditoría**: hoy no existe ningún flujo en la app para que un administrador
+verifique/asigne qué vehículo es ambulancia — `emergency_vehicles.verified`
+(ADR-0006) solo se puede escribir por SQL/MCP directo contra Supabase, no
+hay endpoint ni pantalla de administrador. Para el volumen del piloto
+controlado (Fase 8, 5-10 ambulancias) esto es operable así; construir un
+panel de administrador es una decisión de alcance aparte, no tomada aquí.
 
 ## Referencias
 

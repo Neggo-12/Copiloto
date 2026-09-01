@@ -27,11 +27,13 @@ export interface CorridorCandidate {
 }
 
 /**
- * Por qué se cerró un corredor. `expired` no pasa por aquí — es implícito:
- * el TTL de `RouteSessionService` (4h) y el TTL espejo del set de alertados
- * en `AlertPolicyService` simplemente vencen solos si nadie cierra a mano.
- * Documentado como límite honesto de este slice (ver ADR de cierre): no hay
- * todavía un job que notifique "conflicto resuelto" cuando expira sin
- * cierre explícito.
+ * Por qué se cerró un corredor. `expired` se agregó 2026-09-01 (ver
+ * `AlertPolicyService.sweepExpired`/`CorridorExpirySweepProcessor`): antes
+ * era implícito (el TTL de `RouteSessionService`, 4h, vencía en silencio,
+ * sin avisar "ya pasó" a quien alcanzó a alertarse) — gap documentado en
+ * ADR-0020 como límite honesto, diferido a propósito hasta tener evidencia
+ * real de que hacía falta. Ahora un barrido periódico real (no en el camino
+ * síncrono de ninguna petición) detecta la ruta vencida y cierra el
+ * corredor con este motivo.
  */
-export type CorridorCloseReason = "completed" | "cancelled";
+export type CorridorCloseReason = "completed" | "cancelled" | "expired";

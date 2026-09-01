@@ -44,6 +44,16 @@ export interface CorridorAlertEvent {
   receivedAt: string;
 }
 
+/** Espejo de `CorridorCloseReason` en el backend (`emergency-corridor.types.ts`) — incluye `expired` desde 2026-09-01 (barrido real, ver `AlertPolicyService.sweepExpired`). */
+export type CorridorCloseReason = "completed" | "cancelled" | "expired";
+
+/** "Ya pasó" real — llega solo a quien alcanzó a ser alertado durante ESE traslado (`corridor:alerted:{ambulanceDriverId}` en el backend), no a cualquiera. */
+export interface CorridorClosedEvent {
+  ambulanceDriverId: string;
+  reason: CorridorCloseReason;
+  receivedAt: string;
+}
+
 interface CorridorCandidate {
   userId: string;
   distanceMeters: number;
@@ -68,9 +78,12 @@ export interface CopilotoRealtimeState {
   connectionError: string | null;
   geoStatus: GeoStatus;
   alerts: CorridorAlertEvent[];
+  closedNotices: CorridorClosedEvent[];
   reminderTriggers: ReminderTriggerEvent[];
   noteReminders: NoteReminderDueEvent[];
   ambulanceView: AmbulanceView;
+  /** `null` mientras cierra (evita doble tap); lanza `BackendError` si falla — la pantalla decide cómo mostrarlo. */
+  closeAmbulanceCorridor: (reason: "completed" | "cancelled") => Promise<void>;
 }
 
 const AMBULANCE_POLL_INTERVAL_MS = 8000;
@@ -88,6 +101,7 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [geoStatus, setGeoStatus] = useState<GeoStatus>("idle");
   const [alerts, setAlerts] = useState<CorridorAlertEvent[]>([]);
+  const [closedNotices, setClosedNotices] = useState<CorridorClosedEvent[]>([]);
   const [reminderTriggers, setReminderTriggers] = useState<ReminderTriggerEvent[]>([]);
   const [noteReminders, setNoteReminders] = useState<NoteReminderDueEvent[]>([]);
   const [ambulanceView, setAmbulanceView] = useState<AmbulanceView>({ checked: false });
@@ -142,6 +156,16 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
         }) => {
           if (cancelled) return;
           setAlerts((prev) =>
+            [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
+          );
+        },
+      );
+
+      socket.on(
+        "corridor:closed",
+        (payload: { ambulanceDriverId: string; reason: CorridorCloseReason }) => {
+          if (cancelled) return;
+          setClosedNotices((prev) =>
             [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
           );
         },
@@ -246,13 +270,38 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
     };
   }, []);
 
+  /**
+   * `POST /emergency/corridor/close` real — antes no existía ningún caller
+   * en el frontend (gap documentado en ADR-0020: "no existe todavía UI de
+   * ambulancia... solo consumo de candidatos/alertas del lado del posible
+   * afectado"). Tras cerrar, refresca candidatos una vez para que
+   * `ambulanceView` refleje `hasActiveRoute: false` de inmediato — el
+   * polling normal de 8s ya lo haría, pero esperar hasta 8s después de que
+   * el conductor tocó "Finalizar" se sentiría roto.
+   */
+  async function closeAmbulanceCorridor(reason: "completed" | "cancelled"): Promise<void> {
+    await backend.post<{ closed: true; reason: CorridorCloseReason; notified: string[] }>(
+      "/emergency/corridor/close",
+      { reason },
+    );
+    try {
+      const next = await backend.get<CorridorCandidatesResponse>("/emergency/corridor/candidates");
+      setAmbulanceView({ checked: true, isAmbulance: true, data: next, polling: true });
+    } catch {
+      // El polling normal (cada 8s) termina de refrescar esto solo — no es
+      // crítico que este refresh optimista puntual falle.
+    }
+  }
+
   return {
     connectionStatus,
     connectionError,
     geoStatus,
     alerts,
+    closedNotices,
     reminderTriggers,
     noteReminders,
     ambulanceView,
+    closeAmbulanceCorridor,
   };
 }

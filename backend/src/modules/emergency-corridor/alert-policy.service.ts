@@ -4,6 +4,7 @@ import { REDIS_CONNECTION } from "../../common/redis/redis.module";
 import { DrivingModeService } from "../vehicles/driving-mode.service";
 import type { VehicleType } from "../vehicles/vehicles.types";
 import { LocationBroadcastService } from "../location/location-broadcast.service";
+import { RouteSessionService } from "../route-session/route-session.service";
 import type { CorridorCandidate, CorridorCloseReason } from "./emergency-corridor.types";
 
 /**
@@ -60,6 +61,16 @@ function alertedSetKey(ambulanceDriverId: string): string {
   return `corridor:alerted:${ambulanceDriverId}`;
 }
 
+/**
+ * Quiénes tienen un corredor evaluándose ahora mismo — sin TTL propio (no
+ * es un dato "caliente" con expiración natural, es una lista de membresía).
+ * Sirve para que `sweepExpired` sepa a quién revisar sin recorrer TODOS los
+ * usuarios de la plataforma; se agrega en cada `evaluateAndDispatch` (solo
+ * se llama cuando ya se confirmó que hay ruta activa) y se quita siempre
+ * que el corredor se cierra, por cualquier motivo (`closeCorridor`).
+ */
+const ACTIVE_AMBULANCES_KEY = "corridor:active-ambulances";
+
 export interface AlertDispatchResult {
   alerted: string[];
   skippedByCooldown: string[];
@@ -80,9 +91,16 @@ export class AlertPolicyService {
     @Inject(REDIS_CONNECTION) private readonly redis: Redis,
     private readonly broadcast: LocationBroadcastService,
     private readonly drivingMode: DrivingModeService,
+    private readonly routeSession: RouteSessionService,
   ) {}
 
   async evaluateAndDispatch(ambulanceDriverId: string, candidates: CorridorCandidate[]): Promise<AlertDispatchResult> {
+    // Solo se llama cuando el controller ya confirmó que hay ruta activa
+    // (`found !== null`) — registrar aquí, no en `closeCorridor`, evita que
+    // `sweepExpired` tenga que distinguir "nunca tuvo corredor" de "todavía
+    // no lo cerró".
+    await this.redis.sadd(ACTIVE_AMBULANCES_KEY, ambulanceDriverId);
+
     const alerted: string[] = [];
     const skippedByCooldown: string[] = [];
 
@@ -138,6 +156,37 @@ export class AlertPolicyService {
       this.logger.log(`Ambulancia ${ambulanceDriverId}: corredor cerrado (${reason}), ${notified.length} candidato(s) notificado(s)`);
     }
 
+    // Siempre se quita, incluso sin nadie que notificar (ruta que expiró sin
+    // haber alertado a nadie todavía) — un corredor cerrado no debe quedar
+    // en la lista de `sweepExpired` para revisar otra vez.
+    await this.redis.srem(ACTIVE_AMBULANCES_KEY, ambulanceDriverId);
+
     return notified;
+  }
+
+  /**
+   * Barrido real de corredores "colgados": una ambulancia que dejó de
+   * reportar (app cerrada, viaje abandonado, celular sin batería) sin
+   * llamar nunca a `POST /emergency/corridor/close` — su ruta activa
+   * (`RouteSessionService`, TTL 4h) ya venció, pero sin este barrido nadie
+   * le avisa "ya pasó" a quien alcanzó a alertarse durante el traslado. Gap
+   * documentado como límite honesto en ADR-0020, diferido a propósito hasta
+   * tener evidencia/pedido real de que hacía falta cerrarlo — ver
+   * `CorridorExpirySweepProcessor` para cuándo corre (nunca en el camino
+   * síncrono de una petición real de usuario).
+   */
+  async sweepExpired(): Promise<string[]> {
+    const active = await this.redis.smembers(ACTIVE_AMBULANCES_KEY);
+    const expired: string[] = [];
+
+    for (const ambulanceDriverId of active) {
+      const route = await this.routeSession.getActive(ambulanceDriverId);
+      if (route) continue; // sigue con ruta real activa — no expiró, no se toca
+
+      await this.closeCorridor(ambulanceDriverId, "expired");
+      expired.push(ambulanceDriverId);
+    }
+
+    return expired;
   }
 }

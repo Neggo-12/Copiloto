@@ -4,12 +4,11 @@
  * siempre a través de este archivo, para que agregar/renombrar una cola sea
  * un cambio en un solo lugar.
  *
- * Reservadas pero SIN processor todavía (a propósito, regla de "no
- * complejidad sin evidencia"): quedan como interfaz lista para cuando se
- * construyan sus dominios reales, sin tener que rediseñar el registro.
- * - EMERGENCY_ALERTS: cooldown/expiración/escalado de alertas del Emergency
- *   Corridor (Fase 3, mobility-emergency.md — "nunca mandar un push nuevo
- *   por cada actualización de posición; deduplicar con cooldown").
+ * - EMERGENCY_ALERTS: desde 2026-09-01 tiene su primer processor real
+ *   (`CorridorExpirySweepProcessor`, barrido periódico de corredores que
+ *   expiraron sin cierre explícito — ver ADR-0020). El cooldown/dedup de
+ *   alertas (ADR-0013) sigue viviendo en Redis directo (`SET NX EX`), no en
+ *   esta cola — no hace falta un job para eso.
  * - LOCATION_REMINDERS: trigger de recordatorios por geofence (Fase 7).
  */
 export const QUEUE_NAMES = {
@@ -33,6 +32,18 @@ export interface SystemPingJobData {
 export interface SystemPingJobResult {
   pong: true;
   respondedAt: string;
+}
+
+/** Jobs de la cola `EMERGENCY_ALERTS` — barrido periódico de corredores expirados (ver `AlertPolicyService.sweepExpired`). */
+export const EMERGENCY_ALERTS_JOB_NAMES = {
+  CORRIDOR_EXPIRY_SWEEP: "corridor-expiry-sweep",
+} as const;
+
+/** Sin payload real — el barrido revisa TODOS los corredores activos, no uno en particular. */
+export type CorridorExpirySweepJobData = Record<string, never>;
+
+export interface CorridorExpirySweepJobResult {
+  expiredCount: number;
 }
 
 /** Jobs de la cola `LOCATION_REMINDERS` — recordatorios de nota a hora fija (ADR-0030). */

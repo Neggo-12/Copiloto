@@ -1,7 +1,9 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { PhoneScreen } from "@/components/shared/PhoneScreen";
 import { Badge } from "@/components/ui/badge";
-import { Ambulance, Car, Helmet, Wifi, WifiOff } from "@/components/shared/icons";
+import { Button } from "@/components/ui/button";
+import { Ambulance, Car, Helmet, ShieldCheck, Wifi, WifiOff } from "@/components/shared/icons";
 import { formatClock } from "@/lib/format";
 import type { CopilotoRealtimeState, CorridorSeverity } from "@/hooks/useCopilotoRealtime";
 
@@ -43,7 +45,23 @@ export function EmergenciaScreen({
   tabBar: ReactNode;
   subNav?: ReactNode;
 }) {
-  const { connectionStatus, connectionError, geoStatus, alerts, ambulanceView } = realtime;
+  const { connectionStatus, connectionError, geoStatus, alerts, closedNotices, ambulanceView, closeAmbulanceCorridor } =
+    realtime;
+  const [closing, setClosing] = useState<"completed" | "cancelled" | null>(null);
+  const [closeError, setCloseError] = useState<string | null>(null);
+
+  async function handleClose(reason: "completed" | "cancelled") {
+    if (closing) return;
+    setClosing(reason);
+    setCloseError(null);
+    try {
+      await closeAmbulanceCorridor(reason);
+    } catch (err) {
+      setCloseError(err instanceof Error ? err.message : "No se pudo finalizar el traslado.");
+    } finally {
+      setClosing(null);
+    }
+  }
 
   return (
     <PhoneScreen title="Emergencia" showThemeToggle className="justify-between">
@@ -90,6 +108,35 @@ export function EmergenciaScreen({
                 No tienes una ruta activa — arranca una en Navegación para ver candidatos reales
                 aquí.
               </p>
+            )}
+            {ambulanceView.data?.hasActiveRoute && (
+              <>
+                <div className="flex gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="flex-1"
+                    disabled={closing !== null}
+                    onClick={() => void handleClose("completed")}
+                  >
+                    {closing === "completed" ? "Finalizando…" : "Llegué / Finalizar"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    disabled={closing !== null}
+                    onClick={() => void handleClose("cancelled")}
+                  >
+                    {closing === "cancelled" ? "Cancelando…" : "Cancelar traslado"}
+                  </Button>
+                </div>
+                {closeError && (
+                  <p className="rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+                    {closeError}
+                  </p>
+                )}
+              </>
             )}
             {ambulanceView.data?.hasActiveRoute && ambulanceView.data.candidates.length === 0 && (
               <p className="rounded-xl bg-muted px-3 py-2 text-[13px] text-muted-foreground">
@@ -156,6 +203,23 @@ export function EmergenciaScreen({
                 </div>
               );
             })}
+            {closedNotices.map((notice, index) => (
+              <div
+                key={`${notice.ambulanceDriverId}-${notice.receivedAt}-${index}`}
+                className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  <ShieldCheck className="size-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-medium">Ya pasó, gracias por facilitar el paso.</p>
+                  <p className="text-[12px] text-muted-foreground">
+                    {formatClock(notice.receivedAt)}
+                    {notice.reason === "expired" && " · traslado finalizado"}
+                  </p>
+                </div>
+              </div>
+            ))}
           </>
         )}
       </div>
