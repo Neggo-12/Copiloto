@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { WelcomeStep } from "@/components/onboarding/WelcomeStep";
 import { PhoneStep } from "@/components/onboarding/PhoneStep";
-import { EmailStep, EmailVerifyStep } from "@/components/onboarding/EmailStep";
 import { ProfileStep } from "@/components/onboarding/ProfileStep";
 import { PermissionsStep } from "@/components/onboarding/PermissionsStep";
 import { ChatsTab } from "@/components/chats/ChatsTab";
@@ -42,38 +41,29 @@ function OnboardingFlow() {
     case "welcome":
       return <WelcomeStep onStart={() => setOnboardingStep("phone")} />;
     case "phone":
-      // Piloto (2026-09-02, decisión del fundador): sin paso de código —
-      // PhoneStep ya crea la sesión real con solo el número (ver la nota de
-      // seguridad en src/lib/actions/auth.ts). Salta directo a "email".
+      // Piloto (2026-09-02, decisión del fundador): sin paso de código de
+      // celular NI de correo — PhoneStep ya crea la sesión real con solo el
+      // número (ver la nota de seguridad en src/lib/actions/auth.ts), y el
+      // correo (siempre simulado, secundario en la spec — ver
+      // requestEmailVerification/verifyEmailCode en auth.ts) generaba
+      // confusión real: la pantalla decía "te enviamos un código" pero nunca
+      // se enviaba nada de verdad. Salta directo de "phone" a "profile".
       // Para reconectar el OTP real por SMS: restaurar el case "otp" (usaba
       // <OtpStep onVerified={() => setOnboardingStep("email")} />) y volver
       // este onSent a `() => setOnboardingStep("otp")`.
+      // Para reconectar el correo (real o simulado): restaurar los case
+      // "email"/"email_verify" (usaban <EmailStep>/<EmailVerifyStep>, ver
+      // git history de este archivo) entre "phone" y "profile".
       return (
         <PhoneStep
           onBack={() => setOnboardingStep("welcome")}
-          onSent={() => setOnboardingStep("email")}
-        />
-      );
-    case "email":
-      // "otp" ya no es un paso alcanzable (ver el case "phone" arriba) — si el
-      // usuario da "atrás" aquí, debe volver a "phone", no a un paso fantasma.
-      return (
-        <EmailStep
-          onBack={() => setOnboardingStep("phone")}
-          onSent={() => setOnboardingStep("email_verify")}
-        />
-      );
-    case "email_verify":
-      return (
-        <EmailVerifyStep
-          onBack={() => setOnboardingStep("email")}
-          onVerified={() => setOnboardingStep("profile")}
+          onSent={() => setOnboardingStep("profile")}
         />
       );
     case "profile":
       return (
         <ProfileStep
-          onBack={() => setOnboardingStep("email_verify")}
+          onBack={() => setOnboardingStep("phone")}
           onNext={() => setOnboardingStep("permissions")}
         />
       );
