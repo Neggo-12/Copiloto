@@ -27,9 +27,10 @@ const COMPOUND_SCENARIOS: Record<string, CompoundSimulationScenario> = {
  * terceros (los "vehículos" son sintéticos, IDs fijos que no corresponden a
  * ningún usuario real), pero correr un escenario sí tiene costo real
  * (múltiples escrituras a Redis), así que no queda abierto sin autenticar.
- * Sin UI todavía en `proyecto-mensajeria` — este endpoint es para
- * verificación de ingeniería/QA por ahora (ver ADR-0022), igual que
- * `GET /assistant/tools` no tiene UI propia todavía.
+ * Sigue sin UI propia en `proyecto-mensajeria` (a diferencia de
+ * `EmergenciaScreen`/`AdminAmbulanciasScreen`, que sí llaman al backend real
+ * — ver ADR-0041) — este endpoint sigue siendo para verificación de
+ * ingeniería/QA (ver ADR-0022), igual que `GET /assistant/tools`.
  */
 @Controller("simulation")
 @UseGuards(SupabaseAuthGuard)
