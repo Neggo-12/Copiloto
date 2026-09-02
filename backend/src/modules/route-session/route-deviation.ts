@@ -1,4 +1,4 @@
-import { haversineMeters } from "../../common/geo/haversine";
+import { distanceToPathMeters } from "../../common/geo/interpolate";
 import type { LatLng } from "../../common/geo/types";
 
 /**
@@ -15,25 +15,22 @@ export interface DeviationResult {
 }
 
 /**
- * Distancia del punto actual al punto MÁS CERCANO de la ruta (no proyección
- * punto-segmento). Es una aproximación deliberada, no la versión más precisa
- * posible: el polyline de Google Routes viene con puntos densamente
- * muestreados a lo largo de la vía, así que la distancia al vértice más
- * cercano ya es una buena señal en la práctica. Proyección punto-segmento
- * (más exacta, más costosa) queda como refinamiento futuro si la evidencia
- * de uso real muestra que hace falta — no se construye ahora sin esa
- * evidencia.
+ * Distancia real del punto actual al SEGMENTO más cercano de la ruta
+ * (proyección punto-segmento, `distanceToPathMeters`) — no solo a sus
+ * vértices. Antes se medía solo distancia a vértices: con el polyline
+ * denso de Google Routes eso era una buena aproximación en la práctica,
+ * pero con pocos waypoints (un tramo recto largo, o una ruta sintética de
+ * 2 puntos) declaraba "fuera de ruta" a mitad de un tramo donde en
+ * realidad se iba bien, porque ambos extremos quedaban lejos aunque el
+ * punto estuviera justo sobre la línea entre ellos. Corregido con
+ * evidencia real del simulador (escenario 4, Fase 4 — ver ADR-0022), no
+ * como refinamiento especulativo.
  */
 export function computeDeviation(current: LatLng, routePoints: LatLng[]): DeviationResult {
   if (routePoints.length === 0) {
     return { distanceMeters: Infinity, offRoute: true };
   }
 
-  let min = Infinity;
-  for (const point of routePoints) {
-    const distance = haversineMeters(current, point);
-    if (distance < min) min = distance;
-  }
-
-  return { distanceMeters: min, offRoute: min > OFF_ROUTE_THRESHOLD_METERS };
+  const distanceMeters = distanceToPathMeters(current, routePoints);
+  return { distanceMeters, offRoute: distanceMeters > OFF_ROUTE_THRESHOLD_METERS };
 }

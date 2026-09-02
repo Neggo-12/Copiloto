@@ -45,3 +45,52 @@ export function pathLengthMeters(points: LatLng[]): number {
   }
   return total;
 }
+
+/** Metros por grado de latitud — constante estándar, ya usada en varios escenarios sintéticos del proyecto para aproximaciones planas de corta distancia. */
+const METERS_PER_DEGREE_LAT = 111_320;
+
+/** Proyecta un punto a metros locales (x=este, y=norte) relativos a un punto de referencia — aproximación plana válida para distancias urbanas cortas (mismo criterio que el resto del proyecto). */
+function toLocalMeters(point: LatLng, reference: LatLng): { x: number; y: number } {
+  const metersPerDegreeLng = METERS_PER_DEGREE_LAT * Math.cos((reference.latitude * Math.PI) / 180);
+  return {
+    x: (point.longitude - reference.longitude) * metersPerDegreeLng,
+    y: (point.latitude - reference.latitude) * METERS_PER_DEGREE_LAT,
+  };
+}
+
+/** Distancia real de un punto al SEGMENTO (no solo a sus extremos) — proyección estándar punto-segmento en el plano local. */
+function distanceToSegmentMeters(point: LatLng, segmentStart: LatLng, segmentEnd: LatLng): number {
+  const p = toLocalMeters(point, segmentStart);
+  const b = toLocalMeters(segmentEnd, segmentStart);
+  const lengthSquared = b.x * b.x + b.y * b.y;
+  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, (p.x * b.x + p.y * b.y) / lengthSquared));
+  const closest = { x: b.x * t, y: b.y * t };
+  const dx = p.x - closest.x;
+  const dy = p.y - closest.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Distancia real de un punto a una ruta poligonal completa — al SEGMENTO más
+ * cercano, no al vértice más cercano (ver `computeDeviation` en
+ * `route-session/route-deviation.ts`, que usaba solo distancia a vértices:
+ * funcionaba razonablemente con un polyline denso de Google, pero con pocos
+ * waypoints — ej. un tramo recto largo, o una ruta sintética de 2 puntos —
+ * declaraba "fuera de ruta" a mitad de un tramo donde en realidad iba bien,
+ * porque ambos extremos quedaban lejos aunque el punto estuviera justo
+ * sobre la línea entre ellos. Encontrado con el simulador, escenario 4 —
+ * ver ADR-0022; el propio comentario original de `computeDeviation` ya
+ * marcaba la proyección punto-segmento como mejora diferida "si la
+ * evidencia de uso real muestra que hace falta" — esta es esa evidencia).
+ */
+export function distanceToPathMeters(point: LatLng, routePoints: LatLng[]): number {
+  if (routePoints.length === 0) return Infinity;
+  if (routePoints.length === 1) return haversineMeters(point, routePoints[0]);
+
+  let min = Infinity;
+  for (let i = 1; i < routePoints.length; i++) {
+    const distance = distanceToSegmentMeters(point, routePoints[i - 1], routePoints[i]);
+    if (distance < min) min = distance;
+  }
+  return min;
+}
