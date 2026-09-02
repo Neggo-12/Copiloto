@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { GEOCODING_PROVIDER, type GeocodingProvider } from "../../navigation/providers/geocoding-provider.interface";
 import { LocationStateService } from "../../location/location-state.service";
 import { LocationRemindersService } from "../../location-reminders/location-reminders.service";
+import { ReminderCacheService } from "../../location-reminders/reminder-cache.service";
 import type { AssistantTool, ToolExecutionContext, ToolOutcome } from "../assistant.types";
 
 /**
@@ -12,6 +13,21 @@ import type { AssistantTool, ToolExecutionContext, ToolOutcome } from "../assist
  * coordenadas reales — exactamente el flujo de dos pasos que ya anticipaba
  * ADR-0015. No requiere confirmación: es una acción de bajo riesgo y
  * reversible (`DELETE /location-reminders/:id`).
+ *
+ * Bug real reportado 2026-09-02 (el fundador manejando, creó "comprar unas
+ * pulpas" por voz, pasó a ~100m del punto y nunca sonó nada): esta tool
+ * llamaba `LocationRemindersService.create()` directo, sin pasar por
+ * `LocationRemindersController.create()` — que es el único lugar que
+ * invalidaba `ReminderCacheService` tras crear un recordatorio de ubicación
+ * (ver su comentario real ahí). `GeofenceTriggerService.checkAndTrigger()`
+ * evalúa la proximidad contra esa caché de Redis (TTL de 24h, se autocorrige
+ * sola pero no de inmediato) — si ya estaba poblada por un `location:update`
+ * anterior (el caso real: el fundador ya llevaba el rastreo activo antes de
+ * crear el recordatorio por voz), el geofence seguía evaluando la lista
+ * VIEJA, sin el recordatorio recién creado, por hasta 24h. El recordatorio sí
+ * quedaba bien guardado en Postgres (por eso se veía "Activo" en la UI) — el
+ * bug era puramente de caché desincronizada. Fix: mismo `cache.invalidate()`
+ * que ya usa el controller, ahora también aquí.
  */
 @Injectable()
 export class CreateLocationReminderTool implements AssistantTool {
@@ -32,6 +48,7 @@ export class CreateLocationReminderTool implements AssistantTool {
     @Inject(GEOCODING_PROVIDER) private readonly geocoding: GeocodingProvider,
     private readonly reminders: LocationRemindersService,
     private readonly locationState: LocationStateService,
+    private readonly cache: ReminderCacheService,
   ) {}
 
   async execute(ctx: ToolExecutionContext, args: Record<string, unknown>): Promise<ToolOutcome> {
@@ -83,6 +100,10 @@ export class CreateLocationReminderTool implements AssistantTool {
       radiusMeters: effectiveRadiusMeters,
       label: geocoded.formattedAddress,
     });
+    // Ver comentario de clase (bug real 2026-09-02) — sin esto, el geofence
+    // sigue evaluando la lista vieja de recordatorios pendientes hasta que
+    // la caché expire sola (hasta 24h).
+    await this.cache.invalidate(ctx.userId);
 
     return {
       status: "ok",

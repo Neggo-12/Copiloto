@@ -27,6 +27,11 @@ import { ReminderCacheService } from "./reminder-cache.service";
   imports: [BullModule.registerQueue({ name: QUEUE_NAMES.LOCATION_REMINDERS })],
   controllers: [LocationRemindersController],
   providers: [LocationRemindersService, ReminderCacheService, GeofenceTriggerService, NoteReminderSchedulerService],
-  exports: [GeofenceTriggerService, LocationRemindersService, NoteReminderSchedulerService],
+  // `ReminderCacheService` se exporta desde 2026-09-02 (bug real, ver
+  // `CreateLocationReminderTool`): antes solo `LocationRemindersController`
+  // podía invalidar la caché tras crear un recordatorio — cualquier otro
+  // creador (como la tool de voz, en `AssistantModule`) quedaba sin forma
+  // de hacerlo.
+  exports: [GeofenceTriggerService, LocationRemindersService, NoteReminderSchedulerService, ReminderCacheService],
 })
 export class LocationRemindersModule {}
