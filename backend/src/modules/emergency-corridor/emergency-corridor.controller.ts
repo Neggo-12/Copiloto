@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Post, UseGuards, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Post, UseGuards, Req } from "@nestjs/common";
 import { SupabaseAuthGuard } from "../../common/guards/supabase-auth.guard";
 import type { AuthenticatedRequest } from "../../common/guards/supabase-auth.guard";
 import { EmergencyVehiclesService } from "../emergency/emergency-vehicles.service";
@@ -10,6 +10,16 @@ import type { CorridorCloseReason } from "./emergency-corridor.types";
 interface CloseCorridorBody {
   reason?: CorridorCloseReason;
 }
+
+/**
+ * Motivos que un CLIENTE real puede mandar al cerrar su propio corredor —
+ * deliberadamente sin `"expired"`: ese motivo es interno, solo lo produce
+ * `AlertPolicyService.sweepExpired()` (el barrido periódico, ver
+ * ADR-0020), nunca una acción humana ("Finalizar"/"Cancelar" son las
+ * únicas dos que existen en la UI real). Dejar que un cliente lo mande
+ * dejaría etiquetar mal un cierre real como si hubiera sido el barrido.
+ */
+const CLIENT_CLOSE_REASONS = ["completed", "cancelled"] as const;
 
 /**
  * Solo ambulancias verificadas Y activas pueden consultar candidatos — "qué
@@ -60,7 +70,15 @@ export class EmergencyCorridorController {
    * (misma `RouteSessionService` que `DELETE /navigation/route-session`,
    * reusada aquí para no duplicar el estado de "cuál es mi ruta ahora").
    * `reason` por defecto `cancelled` si no se manda — más seguro asumir que
-   * no llegó a completarse que asumir lo contrario sin confirmación.
+   * no llegó a completarse que asumir lo contrario sin confirmación. Si SÍ
+   * se manda pero no es uno de los dos motivos reales de cliente
+   * (`CLIENT_CLOSE_REASONS`), se rechaza con 400 en vez de asumir
+   * `cancelled` en silencio — encontrado auditando este endpoint para el
+   * Escenario 10 (ADR-0022): antes, cualquier valor no reconocido (un typo
+   * real del cliente, ej. "finished" en vez de "completed") caía callado a
+   * `cancelled`, notificando a los candidatos con la etiqueta equivocada
+   * ("se canceló" en vez de "ya pasó") sin que nadie se enterara del error
+   * real del cliente.
    */
   @Post("close")
   async close(@Req() request: AuthenticatedRequest, @Body() body: CloseCorridorBody) {
@@ -69,7 +87,11 @@ export class EmergencyCorridorController {
       throw new ForbiddenException("Solo conductores de ambulancia verificados y activos pueden cerrar un corredor.");
     }
 
-    const reason: CorridorCloseReason = body?.reason === "completed" ? "completed" : "cancelled";
+    const rawReason = body?.reason;
+    if (rawReason !== undefined && !(CLIENT_CLOSE_REASONS as readonly string[]).includes(rawReason)) {
+      throw new BadRequestException(`reason inválido: "${rawReason}". Válidos: ${CLIENT_CLOSE_REASONS.join(", ")}.`);
+    }
+    const reason: CorridorCloseReason = rawReason === "completed" ? "completed" : "cancelled";
     const notified = await this.alertPolicy.closeCorridor(request.userId, reason);
     await this.routeSession.clear(request.userId);
 

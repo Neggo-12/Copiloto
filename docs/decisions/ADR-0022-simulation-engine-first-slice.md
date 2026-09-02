@@ -696,6 +696,52 @@ vida de cancelación ya funcionaba bien, incluida la idempotencia.
 `typecheck`/`lint`/`build` del backend completo limpios (sin cambios que
 verificar, se confirmó que seguían limpios).
 
+## Escenario 10: "ambulancia terminada" (2026-09-02)
+
+Décimo slice. Auditado antes de construir: `CorridorCloseReason`
+(`completed`/`cancelled`/`expired`) no tiene NINGUNA rama de lógica
+distinta según el motivo en ningún lugar del código (confirmado con
+`grep` real) — solo es la etiqueta que recibe el candidato notificado, y
+el ciclo de vida completo (cierre, liberación de ruta, idempotencia,
+aislamiento entre ambulancias) ya se verificó a fondo en el Escenario 9.
+Lo real que faltaba, y lo que este slice cubre, es el CONTROLLER mismo:
+todos los scripts de verificación anteriores (6-9) llamaban directo a
+`AlertPolicyService`/`EmergencyCorridorService`, nunca al
+`EmergencyCorridorController` que de verdad recibe `POST
+/emergency/corridor/close` — primera vez que se instancia y se prueba el
+controller real, no solo los servicios de abajo. Único fake de este
+script: `EmergencyVehiclesService` (usa Supabase real, sin credenciales
+disponibles en este sandbox — mismo criterio que fakear el
+`RoutingProvider` real, infraestructura externa fuera de alcance, no
+lógica propia); todo lo demás (Redis, `RouteSessionService`,
+`AlertPolicyService`, `EmergencyCorridorService`) es real.
+
+**Bug real encontrado y corregido**: auditando `close()` se encontró que
+cualquier valor de `reason` no reconocido (un typo real del cliente, ej.
+`"finished"` en vez de `"completed"`, o incluso `"expired"` — motivo
+interno que solo debería producir el barrido real,
+`AlertPolicyService.sweepExpired`, nunca un cliente) caía CALLADO al
+default `"cancelled"`, notificando a los candidatos con la etiqueta
+equivocada ("se canceló" en vez de "ya pasó") sin que nadie se enterara
+del error real del cliente. Corregido: se agregó `CLIENT_CLOSE_REASONS =
+["completed", "cancelled"]` (deliberadamente sin `"expired"`) y el
+endpoint ahora rechaza con `BadRequestException` (400) cualquier `reason`
+no vacío que no sea uno de esos dos — `reason` omitido sigue
+defaulteando a `"cancelled"` exactamente como antes (comportamiento
+deliberado ya documentado: "más seguro asumir que no llegó a
+completarse"), eso no cambió.
+
+Verificado, 10/10 casos, con el controller real, Redis real: `reason:
+"completed"` (botón real "Finalizar") cierra, libera la ruta y notifica
+con la etiqueta real; `reason` omitido sigue en `"cancelled"` por
+defecto; un `reason` inválido (typo del cliente) se rechaza con 400 y sin
+efectos secundarios (la ruta activa queda intacta); `reason: "expired"`
+mandado explícitamente por un cliente también se rechaza; un conductor no
+verificado/activo no puede cerrar ningún corredor (guardia de
+autorización ya existente, primera vez verificada a través del
+controller real). `typecheck`/`lint`/`build` del backend completo
+limpios.
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
@@ -714,3 +760,4 @@ verificar, se confirmó que seguían limpios).
 - `backend/src/modules/location/location.types.ts` (`LocationRejectionReason` — `out_of_order` agregado)
 - `backend/src/modules/emergency-corridor/{alert-policy.service.ts,corridor-expiry-sweep.processor.ts}`, `backend/src/common/queue/queue-names.ts` (`sweepExpired`/barrido real, verificado con evidencia en Escenario 7)
 - `docs/decisions/ADR-0020-emergency-corridor-closure.md` (brecha del barrido vs. TTL de ruta, confirmada con evidencia real en Escenario 7, sin corregir — decisión deliberada del fundador)
+- `backend/src/modules/emergency-corridor/emergency-corridor.controller.ts` (validación real de `reason` agregada en Escenario 10 — primera vez que un escenario prueba el controller, no solo los servicios)
