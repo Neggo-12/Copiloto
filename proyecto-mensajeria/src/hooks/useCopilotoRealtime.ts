@@ -94,6 +94,32 @@ export interface CopilotoRealtimeState {
 const AMBULANCE_POLL_INTERVAL_MS = 8000;
 
 /**
+ * Gap real encontrado en pruebas (2026-09-02, el fundador manejando):
+ * `remindersTriggered`/`reminder:due` solo llegaban como tarjeta muda en
+ * "Alertas" (`NotificacionesScreen`) — nunca se anunciaban en voz, ni
+ * siquiera con el asistente de voz ya conectado, porque `useGeminiVoiceSession`
+ * (el micrófono/sesión Live) es un sistema totalmente aparte de este socket
+ * `/location`. Eso rompe la propuesta real de "manos libres": el conductor
+ * tendría que estar mirando la pantalla para enterarse.
+ *
+ * Fix mínimo (REUSE): `speechSynthesis` del navegador — no depende de que
+ * haya una sesión Gemini Live activa, no toca el audio de Gemini (que usa su
+ * propio `AudioContext`/PCM, un sistema distinto, verificado en
+ * `useGeminiVoiceSession`/`gemini-live.service.ts` — no hay conflicto real
+ * entre ambos), y funciona apenas se dispara el recordatorio, sin esperar a
+ * que el usuario abra una conversación de voz. No cubre `corridor:alert`
+ * (alerta de corredor de emergencia) a propósito — es una superficie más
+ * sensible (ver puntos-movilidad-engineering) y el fundador no lo pidió
+ * todavía; queda como siguiente paso si lo confirma.
+ */
+function speak(text: string): void {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "es-ES";
+  window.speechSynthesis.speak(utterance);
+}
+
+/**
  * Conexión real (una sola vez, compartida por Emergencia y Notificaciones)
  * al canal `/location` del backend (ver `LocationGateway`): reporta GPS real
  * del navegador vía `location:update` y escucha `corridor:alert` en vivo —
@@ -185,6 +211,7 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
           setNoteReminders((prev) =>
             [{ ...payload, receivedAt: new Date().toISOString() }, ...prev].slice(0, 20),
           );
+          speak(`Recordatorio: ${payload.title?.trim() || payload.message}`);
         },
       );
 
@@ -216,6 +243,9 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
                   20,
                 ),
               );
+              for (const triggered of ack.remindersTriggered) {
+                speak(`Recordatorio: ${triggered.message}`);
+              }
             },
           );
         },
