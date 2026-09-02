@@ -31,6 +31,13 @@
 # con esos valores vacíos, la app queda compilada apuntando a Supabase con
 # credenciales vacías, y falla con 500 en cada request real (encontrado y
 # confirmado así, con el deploy real de Railway devolviendo 500).
+#
+# VITE_SHADOW_EMAIL_BASE (2026-09-02, piloto sin SMS — ver
+# src/lib/actions/auth.ts): OBLIGATORIA. Sin declararla aquí como ARG, el
+# build la horneará vacía y CADA registro fallará en producción (Supabase
+# rechaza el dominio de mentira de respaldo) — a diferencia de
+# VITE_SUPABASE_URL/KEY, este gap no da un 500 genérico sino que bloquea el
+# registro de cualquier persona real del piloto.
 
 FROM oven/bun:1-alpine AS builder
 WORKDIR /app
@@ -40,6 +47,7 @@ COPY . .
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_PUBLISHABLE_KEY
 ARG VITE_BACKEND_URL
+ARG VITE_SHADOW_EMAIL_BASE
 ENV NITRO_PRESET=node-server
 RUN bun run build
 

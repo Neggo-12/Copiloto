@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { WelcomeStep } from "@/components/onboarding/WelcomeStep";
 import { PhoneStep } from "@/components/onboarding/PhoneStep";
-import { OtpStep } from "@/components/onboarding/OtpStep";
 import { EmailStep, EmailVerifyStep } from "@/components/onboarding/EmailStep";
 import { ProfileStep } from "@/components/onboarding/ProfileStep";
 import { PermissionsStep } from "@/components/onboarding/PermissionsStep";
@@ -29,7 +28,8 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "Vozz — Mensajes y notas de voz" },
       {
         property: "og:description",
-        content: "Chats, notas de voz y tu libreta personal, en una sola app móvil.",
+        content:
+          "Chats, notas de voz y tu libreta personal, en una sola app móvil.",
       },
     ],
   }),
@@ -37,29 +37,31 @@ export const Route = createFileRoute("/")({
 });
 
 function OnboardingFlow() {
-  const { onboardingStep, setOnboardingStep, completeOnboarding } = useAppStore();
+  const { onboardingStep, setOnboardingStep, completeOnboarding } =
+    useAppStore();
 
   switch (onboardingStep) {
     case "welcome":
       return <WelcomeStep onStart={() => setOnboardingStep("phone")} />;
     case "phone":
+      // Piloto (2026-09-02, decisión del fundador): sin paso de código —
+      // PhoneStep ya crea la sesión real con solo el número (ver la nota de
+      // seguridad en src/lib/actions/auth.ts). Salta directo a "email".
+      // Para reconectar el OTP real por SMS: restaurar el case "otp" (usaba
+      // <OtpStep onVerified={() => setOnboardingStep("email")} />) y volver
+      // este onSent a `() => setOnboardingStep("otp")`.
       return (
         <PhoneStep
           onBack={() => setOnboardingStep("welcome")}
-          onSent={() => setOnboardingStep("otp")}
-        />
-      );
-    case "otp":
-      return (
-        <OtpStep
-          onBack={() => setOnboardingStep("phone")}
-          onVerified={() => setOnboardingStep("email")}
+          onSent={() => setOnboardingStep("email")}
         />
       );
     case "email":
+      // "otp" ya no es un paso alcanzable (ver el case "phone" arriba) — si el
+      // usuario da "atrás" aquí, debe volver a "phone", no a un paso fantasma.
       return (
         <EmailStep
-          onBack={() => setOnboardingStep("otp")}
+          onBack={() => setOnboardingStep("phone")}
           onSent={() => setOnboardingStep("email_verify")}
         />
       );
@@ -122,7 +124,11 @@ function MainShell() {
           // Abre el chat existente o lo crea de verdad en Supabase, y salta
           // a la pestaña Chats.
           void chats
-            .startChatWithUser(contact.linkedUserId, contact.displayName, contact.avatarUrl)
+            .startChatWithUser(
+              contact.linkedUserId,
+              contact.displayName,
+              contact.avatarUrl,
+            )
             .then((chatId) => {
               if (!chatId) return;
               chats.openChat(chatId);
