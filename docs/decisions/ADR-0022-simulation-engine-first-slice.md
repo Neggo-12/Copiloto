@@ -581,6 +581,60 @@ este slice — solo evidencia real de un comportamiento que ya era correcto.
 `typecheck`/`lint`/`build` del backend completo limpios (sin cambios que
 verificar, se confirmó que seguían limpios).
 
+## Escenario 8: "reconexión WebSocket" (2026-09-02)
+
+Octavo slice, contraparte natural del Escenario 7. Sin `scenario-8-*.ts`
+nuevo en el motor (mismo motivo que 6 y 7). Verificado con
+`verify-reconnect.ts` (script real no comiteado, Redis real). Auditado
+antes de construir: `LocationGateway` no tiene ningún código especial de
+"reconexión" — cada conexión nueva de Socket.IO simplemente vuelve a
+autenticar y unirse a su room en `handleConnection`, sin estado pegado al
+socket anterior (confirmado en el Escenario 7). Lo real que hacía falta
+verificar era el resto del sistema: validación, corredor y cooldown de
+alertas cuando los reportes se reanudan. Como el Escenario 7, ningún caso
+encontró un bug — confirma con evidencia real que el diseño ya existente
+se comporta bien.
+
+**Hallazgo de diseño confirmado, no un bug**: hay DOS TTL reales distintos
+en juego que nunca se habían comparado con evidencia real. `STALE_AFTER_MS`
+(30s, ya conocido desde el Escenario 6) solo marca `stale: true` — la
+clave de Redis sigue viva. `REDIS_KEY_TTL_SECONDS` (300s = 5 min, interno
+de `location-state.service.ts`) es el TTL real de la clave
+`location:current:<userId>` — pasado ese tiempo la clave desaparece del
+todo y `getCurrent()` devuelve `null`, no solo `stale: true`. Esto importa
+para `validateRawReport`: reconectar dentro de la ventana 30s-300s todavía
+compara contra un `previous` real (chequeo de velocidad implícita
+aplica); reconectar después de 300s llega con `previous: null` — se trata
+como un reporte de cero, igual que un usuario nuevo cualquiera.
+
+**Parte A (ventana 30s-300s)**: candidato alertado → se desconecta → deja
+de aparecer (confirma Escenario 6/7 sigue vigente) → se reconecta desde
+una posición nueva pero físicamente alcanzable en el tiempo REAL
+transcurrido — `validateRawReport` lo acepta (no confunde "estuvo
+desconectado" con "salto imposible", porque el `deltaSeconds` real usado
+es el tiempo real transcurrido, no la ventana simulada) → vuelve a
+aparecer en el corredor de inmediato → si el cooldown de alerta por par ya
+venció, se puede volver a alertar (la reconexión no lo bloquea para
+siempre).
+
+**Parte B (después de 300s, clave de Redis vencida del todo)**: confirma
+que `getCurrent()` devuelve `null` (no solo `stale: true`) — probado
+borrando la clave directamente, efecto real observable idéntico a que el
+TTL real se cumpla — y que el siguiente reporte, con `previous: null`, se
+acepta como reporte de cero sin chequeo de velocidad implícita contra
+nada, reapareciendo en el corredor como cualquier candidato nuevo.
+
+**Parte C (la ambulancia se reconecta, continuación real del Escenario
+7)**: confirma que la advertencia real de "GPS atrasado" (agregada en el
+Escenario 6) no es un estado "pegado" — se re-evalúa en cada llamada real
+a `findCandidates`, así que desaparece sola en cuanto la ambulancia vuelve
+a reportar, sin necesitar limpieza explícita.
+
+Verificado, 11/11 casos, Redis real. Sin cambios de código — solo
+evidencia real de un comportamiento que ya era correcto, como el
+Escenario 7. `typecheck`/`lint`/`build` del backend completo limpios (sin
+cambios que verificar, se confirmó que seguían limpios).
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
