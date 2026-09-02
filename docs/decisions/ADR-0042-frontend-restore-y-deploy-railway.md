@@ -1,7 +1,7 @@
 # ADR-0042: Corrección de un hallazgo falso + Dockerfile real para desplegar `proyecto-mensajeria/` en Railway
 
 - Fecha: 2026-09-02
-- Estado: **Dockerfile listo y verificado contra el repo REAL del Mac; falta que el fundador cree el segundo servicio en Railway** (acción de cuenta, no la puedo ejecutar yo).
+- Estado: **desplegado real en Railway y verificado en un navegador real** (`https://disciplined-ambition-production-b2c4.up.railway.app`). Falta solo un paso real de configuración: fijar `CORS_ORIGIN` en el servicio del backend con esta URL (ADR-0040).
 
 ## Contexto — y una autocorrección real
 
@@ -145,6 +145,37 @@ como bloqueante, cuando el puente a la Mac está disponible.
 4. Con la URL real del frontend ya generada, volver al servicio del
    **backend** y fijar `CORS_ORIGIN` (ADR-0040) a esa URL — pendiente
    explícito que quedaba abierto desde ADR-0041.
+
+## Resultado real del despliegue — dos bugs reales encontrados y corregidos en producción
+
+Con el Dockerfile ya en Railway, el despliegue real reveló dos problemas que
+ningún build/typecheck/lint local podía haber mostrado (son de
+configuración de infraestructura, no de código):
+
+1. **502 real**: el dominio público HTTP quedó apuntando al puerto por
+   defecto de Railway (`8080`) mientras la app real escuchaba en `3000`
+   (confirmado con el log real de arranque: `Listening on: http://localhost:3000/`).
+   Un "3000" que se había puesto antes terminó configurando el **TCP Proxy**
+   (una feature aparte), no el dominio HTTP. Corregido editando el puerto
+   del dominio HTTP a `3000` en Settings → Networking.
+2. **500 real** (tras corregir el 502): confirmado contra la documentación
+   oficial de Railway (`docs.railway.com/builds/dockerfiles`) que **Railway
+   solo pasa las variables del servicio al build de Docker si el Dockerfile
+   las declara con `ARG`** — sin eso, `bun run build` corría con
+   `VITE_SUPABASE_URL`/`VITE_SUPABASE_PUBLISHABLE_KEY`/`VITE_BACKEND_URL`
+   vacías (se "hornean" en el bundle en tiempo de build, no se leen después
+   en runtime), y la app quedaba compilada intentando hablar con Supabase
+   sin credenciales. Verificado real y reproducido en este sandbox:
+   `bun run build` sin esas variables NO deja la URL real de Supabase en
+   `.output/`; con las variables sí. Corregido agregando `ARG
+   VITE_SUPABASE_URL` / `ARG VITE_SUPABASE_PUBLISHABLE_KEY` / `ARG
+   VITE_BACKEND_URL` al stage `builder` del Dockerfile.
+
+Verificación final real: el fundador abrió la URL pública
+(`https://disciplined-ambition-production-b2c4.up.railway.app`) en su
+navegador real y la app cargó completa (pantalla de bienvenida "Mensajes y
+notas, en un solo lugar"), confirmado con captura de pantalla real — no
+simulado.
 
 ## Pendiente real, deliberadamente no tocado en este cambio
 
