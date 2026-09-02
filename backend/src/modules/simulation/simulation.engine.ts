@@ -72,7 +72,15 @@ export class SimulationEngineService {
       // Posiciona a la ambulancia y a cada vehículo "de fondo" en su punto
       // correspondiente a este instante simulado — vehículos con un solo
       // punto de ruta quedan estacionados (tráfico detenido).
-      const ambulancePosition = positionAtElapsedSeconds(scenario.ambulance, elapsedSeconds);
+      const trueAmbulancePosition = positionAtElapsedSeconds(scenario.ambulance, elapsedSeconds);
+      // Si el escenario define `ambulanceReportNoise`, lo que se REPORTA al
+      // corredor puede diferir de la posición física real (ver escenario 5,
+      // "GPS con ruido") — el movimiento/tiempo real de viaje siempre se
+      // calcula sobre la posición verdadera, nunca sobre la ruidosa.
+      const distanceTraveledMeters = scenario.ambulance.speedMps * elapsedSeconds;
+      const ambulancePosition = scenario.ambulanceReportNoise
+        ? scenario.ambulanceReportNoise(trueAmbulancePosition, distanceTraveledMeters)
+        : trueAmbulancePosition;
       await this.locationState.setCurrent(
         toNormalizedLocation(scenario.ambulance.id, ambulancePosition, scenario.ambulance.speedMps),
       );

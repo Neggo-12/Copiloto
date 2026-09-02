@@ -370,6 +370,67 @@ simulador. No se corrige en este cambio (no era lo pedido y agregaría
 alcance no solicitado) — queda anotado para si el fundador pide
 priorizarlo con evidencia real de que hace falta.
 
+## Escenario 5: "GPS con ruido" (2026-09-02)
+
+Quinto slice. Auditado antes de construir: `SimulationEngineService` NUNCA
+pasa por `validateRawReport`/`normalizeReport` (`location-normalizer.ts`) —
+escribe directo a `LocationStateService.setCurrent()`. Ese es el mecanismo
+REAL de defensa contra GPS con ruido del proyecto, y no tenía ninguna
+verificación (no hay `*.spec.ts` en el repo — este proyecto verifica con
+escenarios reales, no con un framework de tests). Por eso este slice tiene
+dos partes.
+
+**Parte A — verificación directa de `validateRawReport`/`normalizeReport`**
+(`verify-gps-noise.ts`, script real no comiteado, mismo criterio que el
+resto de las verificaciones de esta ADR): 13/13 casos, con las funciones
+reales, sin mocks — ruido urbano realista (±15m, accuracy 12m) aceptado con
+calidad `good`; accuracy degradada (120m) aceptada pero marcada
+`low_accuracy`; un glitch real (salto de 2km en 1s) RECHAZADO con
+`implausible_jump`, confirmando además que un reporte rechazado nunca
+contamina la siguiente validación (`LocationGateway` solo llama a
+`locationState.setCurrent()` cuando `validation.ok`, así que el `previous`
+de la siguiente validación sigue siendo el último reporte BUENO); accuracy
+imposible (8000m) y velocidad imposible (400km/h) rechazadas duro; reloj
+del cliente muy adelantado rechazado. Ningún bug encontrado — el mecanismo
+ya existente funciona como se esperaba, primera vez que se confirma con
+evidencia real en vez de solo por lectura de código.
+
+**Parte B — estabilidad del corredor bajo ruido aceptado**
+(`scenario-5-gps-noise.ts`): la ambulancia se mueve por una ruta recta real
+(temporización correcta), pero lo que reporta al corredor tiene ruido
+determinístico (`sin()`, nunca `Math.random()`) encima — ±15m en la mayor
+parte del trayecto, con una zona adversarial de ±65m (a caballo del umbral
+de 60m) simulando una mala zona de señal.
+
+**Pieza nueva, encontrada construyendo, no anticipada**:
+`ambulanceReportNoise` en `SimulationScenario`. La primera versión de este
+escenario metía el ruido directo en `ambulance.routePoints` (un zigzag
+real) — eso distorsionaba el LARGO real del recorrido (el arco de un
+zigzag es más largo que la línea recta) y por lo tanto el tiempo real de
+viaje: el "temblor" adversarial nunca coincidía con el paso simulado
+esperado porque el vehículo tardaba más de lo calculado en recorrerlo.
+Corregido desacoplando el ruido de sensor (lo que se REPORTA) del
+movimiento físico real (por dónde y a qué velocidad se mueve de verdad) —
+`SimulationEngineService.run()` ahora calcula la posición verdadera primero
+(temporización siempre correcta) y, si el escenario define
+`ambulanceReportNoise`, la transforma antes de guardarla en
+`LocationStateService`. Sin este campo (escenarios 1-4), el comportamiento
+es idéntico a antes.
+
+**Verificación (real, sin mocks, `redis-server` local)**: 4/4 casos —
+candidato estable (sin ruido propio) detectado igual que en escenarios
+anteriores; control lejano nunca alertado; candidato con temblor propio a
+caballo del umbral crítico (67.5m con buffer=270m) sí alertado; el
+recálculo real de ruta (`tryReroute`, con el mismo provider fake
+determinístico de siempre) se disparó exactamente 1 vez — en el único paso
+simulado (1200m recorridos) que cae dentro de la zona adversarial — y
+ningún paso con ruido normal lo disparó. Regresión completa de los
+escenarios 1-4 sin cambios (5, 53, aislamiento por par, escenario 4 con el
+recálculo activo) — confirma que agregar `ambulanceReportNoise` como campo
+opcional no afectó a los escenarios que no lo usan.
+
+`typecheck`/`lint`/`build` del backend completo limpios.
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
@@ -382,4 +443,6 @@ priorizarlo con evidencia real de que hace falta.
 - `backend/src/modules/emergency-corridor/emergency-corridor.module.ts` (importa `NavigationModule` por `ROUTING_PROVIDER`)
 - `backend/src/modules/route-session/route-deviation.ts` (`computeDeviation` corregido a distancia real de segmento)
 - `backend/src/modules/navigation/providers/routing-provider.interface.ts`, `google-routing.provider.ts` (`RoutingProvider` real, ya existente desde ADR-0010, reusado — no duplicado)
+- `backend/src/modules/simulation/scenarios/scenario-5-gps-noise.ts`, `backend/src/modules/simulation/simulation.types.ts` (`ambulanceReportNoise`)
+- `backend/src/modules/location/location-normalizer.ts` (`validateRawReport`/`normalizeReport` — mecanismo real de defensa contra GPS con ruido)
 - `backend/src/modules/location/location-state.service.ts` (`findNearby`, GEOSEARCH)

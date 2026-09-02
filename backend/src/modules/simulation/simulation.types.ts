@@ -40,6 +40,25 @@ export interface SimulationScenario {
    * el GPS se alejó de él (ver escenario 4, "vehículo fuera de ruta").
    */
   ambulancePlannedRoutePoints?: LatLng[];
+  /**
+   * Función opcional que transforma la posición VERDADERA de la ambulancia
+   * (la que calcula `ambulance.routePoints`/`speedMps`, movimiento físico
+   * real) en la posición REPORTADA (con ruido de GPS simulado encima).
+   * Desacopla el ruido de sensor del movimiento físico real: si el ruido se
+   * mete directo en `ambulance.routePoints` (un zigzag real), una amplitud
+   * de ruido grande en poca distancia distorsiona el LARGO REAL del
+   * recorrido (arco > línea recta), y con eso el tiempo/velocidad reales de
+   * viaje — un vehículo no puede físicamente ir a 15m/s Y zigzaguear 65m
+   * cada pocos metros. Encontrado construyendo el escenario 5 ("GPS con
+   * ruido"): la primera versión metía el ruido directo en `routePoints` y
+   * el "desvío" adversarial nunca coincidía con el paso simulado esperado,
+   * porque el vehículo tardaba más de lo calculado en recorrer el zigzag.
+   * Determinista a propósito (misma regla del resto del proyecto): debe ser
+   * una función pura de `distanceTraveledMeters`, nunca de
+   * `Date.now()`/`Math.random()`. Si se omite, se reporta la posición
+   * verdadera tal cual (comportamiento de los escenarios 1-4, sin cambios).
+   */
+  ambulanceReportNoise?: (truePosition: LatLng, distanceTraveledMeters: number) => LatLng;
 }
 
 export interface SimulationStepResult {

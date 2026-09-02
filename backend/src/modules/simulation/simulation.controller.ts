@@ -5,6 +5,7 @@ import { SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES } from "./scenarios/scenario-1-
 import { SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES } from "./scenarios/scenario-2-single-ambulance-100-vehicles";
 import { SCENARIO_3_THREE_AMBULANCES_SIMULTANEOUS } from "./scenarios/scenario-3-three-ambulances-simultaneous";
 import { SCENARIO_4_VEHICLE_OFF_ROUTE } from "./scenarios/scenario-4-vehicle-off-route";
+import { SCENARIO_5_GPS_NOISE } from "./scenarios/scenario-5-gps-noise";
 import { SimulationEngineService } from "./simulation.engine";
 import type { CompoundSimulationScenario, SimulationScenario } from "./simulation.types";
 
@@ -13,6 +14,7 @@ const SCENARIOS: Record<string, SimulationScenario> = {
   [SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES.name]: SCENARIO_1_SINGLE_AMBULANCE_10_VEHICLES,
   [SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES.name]: SCENARIO_2_SINGLE_AMBULANCE_100_VEHICLES,
   [SCENARIO_4_VEHICLE_OFF_ROUTE.name]: SCENARIO_4_VEHICLE_OFF_ROUTE,
+  [SCENARIO_5_GPS_NOISE.name]: SCENARIO_5_GPS_NOISE,
 };
 
 /** Registro separado para escenarios de VARIAS ambulancias (ver `CompoundSimulationScenario`) — mismo criterio de "uno a la vez" que `SCENARIOS`. */
