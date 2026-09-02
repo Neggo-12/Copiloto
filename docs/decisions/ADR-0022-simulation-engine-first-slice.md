@@ -635,6 +635,67 @@ evidencia real de un comportamiento que ya era correcto, como el
 Escenario 7. `typecheck`/`lint`/`build` del backend completo limpios (sin
 cambios que verificar, se confirmó que seguían limpios).
 
+## Escenario 9: "ambulancia cancelada" (2026-09-02)
+
+Noveno slice. Sin `scenario-9-*.ts` nuevo en el motor — auditado antes de
+construir: `AlertPolicyService.closeCorridor` no tiene ninguna rama de
+código distinta según el motivo (`completed`/`cancelled`/`expired` solo
+cambian la etiqueta que recibe el candidato notificado), así que agregar
+un campo nuevo al motor de simulación solo para elegir el motivo habría
+sido complejidad sin evidencia real de que aporte algo que las llamadas
+directas no cubran ya — mismo criterio que Escenarios 6-8. Verificado con
+`verify-cancel.ts` (script real no comiteado, Redis real).
+
+**Parte A — ciclo de vida real de `POST /emergency/corridor/close`**
+(default `reason: "cancelled"` si no se manda, ver el controller):
+cancelar un corredor que nunca tuvo candidatos ni se registró como activo
+(nunca se llamó `GET /candidates`) no lanza, no hay a quién notificar —
+`SREM` sobre un set del que nunca fue miembro es un no-op seguro,
+confirmado con Redis real. Cancelar un corredor CON un candidato ya
+alertado sí lo notifica, y con el motivo REAL (`"cancelled"`, no
+`"completed"` por defecto) — la etiqueta se propaga tal cual, nunca se
+pierde. Tras cancelar, la ruta activa desaparece y `findCandidates` vuelve
+a devolver `null` (mismo estado que "nunca arrancó nada"). Doble
+cancelación (botón "Cancelar" tocado dos veces, o un reintento de red) es
+idempotente: la segunda llamada no lanza y no reenvía la notificación —
+confirma la regla del proyecto "no notificar innecesariamente" también en
+este camino, nunca antes verificada con evidencia real.
+
+**Parte B — aislamiento real entre ambulancias**: cancelar el corredor
+propio nunca toca el de otra ambulancia — ruta activa, candidatos y
+notificaciones de la otra quedan intactos. Nota honesta sobre cómo se
+construyó esta prueba: la primera versión del script reusaba las mismas
+coordenadas para dos ambulancias "distintas" y falló — no porque el
+producto tuviera un bug, sino porque con corredores geográficamente
+superpuestos, el corredor de una SÍ empieza a ver a la otra ambulancia (y
+a candidatos ya alertados por ella) como candidatos nuevos propios. Eso es
+real, pero es la pregunta del Escenario 12 ("corredores que sí se
+cruzan", todavía pendiente en el roadmap) — se corrigió el diseño de ESTA
+prueba (coordenadas bien separadas) para no mezclar las dos preguntas, y
+se deja anotado como evidencia útil para cuando se construya el Escenario
+12, no como algo a corregir ahora.
+
+**Parte C (hallazgo real, documentado, NO corregido)**: cancelar no limpia
+el cooldown real de recálculo de ruta (`corridor:reroute-cooldown:
+<ambulanceDriverId>`, `tryReroute`, ADR-0022) — confirmado con Redis real,
+el cooldown sigue existiendo después de cancelar. Impacto real acotado: si
+el MISMO conductor cancela y arranca un traslado nuevo dentro de los 30s
+siguientes, y ese traslado nuevo necesita un recálculo real de ruta de
+inmediato, caería al fallback existente (proteger el radio alrededor de
+la posición actual) en vez de recalcular contra Google Routes — sigue
+siendo seguro, solo menos preciso (mismo criterio que la documentación
+original de `tryReroute`). No se corrige: la clave está scopeada al
+CONDUCTOR, no a un traslado en particular, y limpiarla al cancelar
+agregaría una dependencia cruzada entre `AlertPolicyService` y
+`EmergencyCorridorService` para un caso de borde de baja probabilidad y
+bajo impacto — se documenta como evidencia real por si el fundador pide
+priorizarlo.
+
+Verificado, 16/16 casos, Redis real. Sin cambios de código — el ciclo de
+vida de cancelación ya funcionaba bien, incluida la idempotencia.
+`typecheck`/`lint`/`build` del backend completo limpios (sin cambios que
+verificar, se confirmó que seguían limpios).
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
