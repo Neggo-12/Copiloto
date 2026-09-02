@@ -21,6 +21,7 @@
     "@nestjs/platform-socket.io": "^11.2.1",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.2.1",
+    "@socket.io/redis-adapter": "^8.3.0",
     "@supabase/supabase-js": "^2.49.4",
     "bullmq": "^6.1.2",
     "ioredis": "^6.0.0",
