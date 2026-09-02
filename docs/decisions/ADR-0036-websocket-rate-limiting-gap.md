@@ -1,7 +1,7 @@
-# ADR-0036: Fase 8 (Hardening) — los gateways de WebSocket no tienen rate limiting real
+# ADR-0036: Fase 8 (Hardening) — los gateways de WebSocket no tenían rate limiting real
 
 - Fecha: 2026-09-02
-- Estado: hallazgo documentado, **sin corregir todavía** — pendiente de decisión del fundador sobre los límites reales por canal (ver "Pendiente" abajo).
+- Estado: **corregido el mismo día** — el fundador delegó explícitamente los límites reales ("quiero que tomes tú la decisión y toma la mejor"), mismo criterio ya usado para `MIN_BUFFER_METERS`/`MAX_BUFFER_METERS` (ADR-0021). Ver "Corrección real" abajo.
 
 ## Contexto
 
@@ -70,59 +70,84 @@ reemplazarlo por un origen explícito, mismo criterio que ya aplica
 `main.ts` para CORS HTTP (`origin: true` solo en desarrollo, deshabilitado en
 producción "hasta que exista un dominio real que restringir explícitamente").
 
-## Por qué no se corrige en este mismo cambio
-
-Elegir un límite real por canal es una decisión de producto, no algo para
-adivinar:
-
-- `location:update` real: la ambulancia consulta candidatos cada 5-10s
-  (documentado en `EmergencyCorridorController`), pero el reporte de
-  ubicación en sí (`location:update`) puede — y según
-  `MISSING_CAPABILITIES.md` DEBE eventualmente — mandarse de forma continua
-  mientras la app esté abierta, no solo durante navegación activa. Un límite
-  mal elegido podría degradar la precisión del corredor real (menos
-  frecuencia = detección más tardía de un candidato).
-- `voice:audio-chunk`: tráfico legítimo de alta frecuencia durante una
-  sesión de voz activa (chunks de audio real, no un evento esporádico) — un
-  límite genérico de "N mensajes/minuto" pensado para HTTP no tiene sentido
-  aplicado tal cual aquí.
+## Por qué no se podía corregir con un decorador
 
 Como `@nestjs/throttler` no llega a los gateways (confirmado arriba), la
-corrección real no puede ser "agregar un decorador" — necesitaría un chequeo
-manual con Redis (mismo patrón `SET NX EX`/`INCR EX` que ya usa
-`AlertPolicyService`/`EmergencyCorridorService` en este proyecto, reusando
-infraestructura ya real) dentro de cada handler, con un límite específico
-por canal. Construir eso sin que el fundador defina los números reales sería
-inventar un límite que después alguien tiene que deshacer o pelear —
-"no adivines" aplica también a decisiones de producto, no solo a código.
+corrección real no podía ser "agregar un decorador" — necesitaba un chequeo
+manual con Redis dentro de cada handler.
 
-## Pendiente (para decidir, no para adivinar)
+## Corrección real
 
-1. ¿Cuál es un límite razonable real para `location:update` por usuario
-   (mensajes/segundo o mensajes/minuto)? Referencia: un reporte GPS típico de
-   apps de navegación es cada 1-5s en movimiento activo.
-2. ¿`voice:audio-chunk` necesita un límite de frecuencia, o el límite natural
-   ya lo impone el tamaño real de los chunks de audio del cliente (es decir,
-   el riesgo real es abrir MUCHAS sesiones concurrentes, no mandar mensajes
-   rápido dentro de una)? Relacionado: `AssistantVoiceGateway.handleConnection`
-   abre una sesión real de Gemini Live (con costo real) por cada conexión
-   aceptada, sin ningún límite de sesiones concurrentes por usuario —
-   vector real de abuso de costo si un token real se filtra, evaluado aquí
-   pero no corregido todavía por la misma razón (falta decidir el límite).
-3. Reemplazar `cors: { origin: "*" }` por un origen real explícito antes de
-   producción (mismo criterio ya aplicado a CORS HTTP en `main.ts`).
+Nuevo helper genérico, `checkSocketRateLimit` (`common/rate-limit/socket-rate-limit.ts`)
+— mismo patrón real de contador de ventana fija que ya usa el resto del
+proyecto para dedup/cooldown (`SET NX EX`/`INCR EX` en
+`AlertPolicyService`/`EmergencyCorridorService`), no una librería nueva:
+`redis.incr(key)` (atómico) + `EXPIRE` solo la primera vez que la ventana se
+crea. Devuelve `true`/`false`, nunca lanza ni cierra el socket — un pico de
+tráfico real se descarta en silencio (el cliente reintenta su próximo
+mensaje normal), nunca amerita desconectar a nadie.
+
+Límites reales elegidos (el fundador delegó la decisión explícitamente — "la
+decisión se la dejo a usted, tome la mejor", mismo criterio de ADR-0021 para
+el buffer dinámico), generosos a propósito: el objetivo es frenar un cliente
+roto o malicioso, nunca tráfico legítimo real, así que cada número se eligió
+muy por encima de la cadencia real esperada:
+
+- **`location:update`: 100 mensajes / 10s por usuario.** Un reporte GPS real
+  en navegación activa típicamente llega cada 1-3s (≈20-60/min) — 100/10s
+  (600/min equivalente, pero como ventana corta también tolera una ráfaga
+  real de hasta 100 de golpe) deja margen de sobra incluso para una
+  reconexión real que vacía de un tirón una cola de reportes atrasados (caso
+  YA verificado con evidencia real en el Escenario 6, ADR-0022 — "una
+  ráfaga... todos aceptados"): este fix no debía romper ese comportamiento
+  ya correcto.
+- **`voice:text`: 10 mensajes / 10s por usuario.** Un turno de texto es una
+  acción humana discreta (escribir/dictar una pregunta) — nadie manda más de
+  un puñado de turnos reales en 10s.
+- **`voice:audio-chunk`: 50 mensajes / 5s por usuario.** Streaming real de
+  micrófono manda varios chunks por segundo de por sí — un límite estricto
+  rompería uso legítimo; 50/5s (10/s) da margen de sobra sobre cualquier
+  cadencia real de micrófono, y solo ataja un cliente mandando muchísimo más
+  rápido que cualquier audio real.
+- **A lo sumo 1 sesión real de Gemini Live activa por usuario**, para el
+  vector de costo (no de frecuencia) identificado en el hallazgo: cada
+  sesión tiene costo real. Si el mismo usuario abre una conexión nueva
+  (reconexión real por red perdida/app en background) mientras ya tenía una
+  activa, `AssistantVoiceGateway.handleConnection` cierra la VIEJA (le manda
+  `voice:closed` con `reason: "replaced_by_new_connection"` y la
+  desconecta) antes de abrir la nueva — nunca deja sesiones huérfanas
+  facturando en paralelo. Tracking en memoria (`Map<userId, socket>`), no en
+  Redis a propósito: la sesión es un objeto vivo atado a este proceso, no
+  algo que deba sobrevivir un reinicio ni compartirse entre instancias.
+
+No se tocó `cors: { origin: "*"}` en este cambio — queda como el único punto
+realmente pendiente de esta ADR, de menor severidad (la autenticación real
+sigue siendo el token, no el origen), a resolver cuando exista un dominio de
+producción real que restringir (mismo criterio que ya aplica `main.ts` para
+CORS HTTP).
 
 ## Verificación
 
-Script throwaway (`verify-ws-throttle.ts`, borrado tras la corrida, no
-comiteado) — app NestJS real + Redis real + `socket.io-client` real,
-confirmando los 3 puntos del hallazgo arriba. `typecheck`/`lint`/`build` del
-backend no se tocaron (este cambio es solo de documentación — no se escribió
-ningún fix todavía, a propósito).
+Con Redis real, 12/12 casos: `checkSocketRateLimit` permite exactamente el
+límite y bloquea de ahí en adelante, con TTL real puesto en la clave, y
+vuelve a permitir pasada la ventana real; `LocationGateway.handleLocationUpdate`
+real (instanciado directo, mismo patrón de los Escenarios 10-12, único fake
+Supabase por falta de credenciales en este sandbox) acepta exactamente 100
+de 101 reportes reales seguidos y descarta el 101 con `rateLimited: true`
+sin tocar el estado guardado; `AssistantVoiceGateway.handleText`/
+`handleAudioChunk` reales aceptan exactamente el límite y descartan el
+resto sin llegar a Gemini; conectar un socket nuevo del mismo usuario cierra
+de verdad el socket viejo (`voice:closed` real + `disconnect`) y dos
+conexiones nunca quedan activas en paralelo. `typecheck`/`lint`/`build` del
+backend completo limpios. Scripts throwaway (`verify-ws-throttle.ts` del
+hallazgo original y `verify-ws-rate-limit-fix.ts` de esta corrección),
+borrados tras la corrida, no comiteados.
 
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 8 — Hardening)
 - `docs/decisions/05_CRONOGRAMA_EMERGENCY_Y_NUEVAS_FUNCIONALIDADES.md` (Fase 8)
 - `backend/src/common/rate-limit/rate-limit.module.ts`, `backend/src/common/guards/user-aware-throttler.guard.ts`
+- `backend/src/common/rate-limit/socket-rate-limit.ts` (helper real nuevo — `checkSocketRateLimit`)
 - `backend/src/modules/location/location.gateway.ts`, `backend/src/modules/assistant/assistant-voice.gateway.ts`
+- `docs/decisions/ADR-0021-corridor-dynamic-buffer-severity.md` (mismo criterio de decisión delegada al fundador, "tome la mejor")

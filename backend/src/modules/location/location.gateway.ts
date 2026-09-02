@@ -10,7 +10,10 @@ import {
 } from "@nestjs/websockets";
 import type { Server, Socket } from "socket.io";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Redis } from "ioredis";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
+import { REDIS_CONNECTION } from "../../common/redis/redis.module";
+import { checkSocketRateLimit } from "../../common/rate-limit/socket-rate-limit";
 import { decodePolyline } from "../../common/geo/polyline";
 import { GeofenceTriggerService, type TriggeredReminder } from "../location-reminders/geofence-trigger.service";
 import { RouteSessionService } from "../route-session/route-session.service";
@@ -19,6 +22,27 @@ import { LocationBroadcastService } from "./location-broadcast.service";
 import { LocationStateService } from "./location-state.service";
 import { normalizeReport, validateRawReport } from "./location-normalizer";
 import type { RawLocationReport } from "./location.types";
+
+/**
+ * Límite real de `location:update` por usuario — ver ADR-0036 (el
+ * `APP_GUARD` global de rate limiting no llega a los WebSocket gateways,
+ * confirmado con evidencia real). Elegido generoso a propósito, no ajustado
+ * al mínimo: un reporte GPS real durante navegación activa puede llegar
+ * cada 1-3s, y una reconexión real después de estar offline puede vaciar de
+ * golpe una cola de reportes atrasados en una ráfaga (mismo caso ya
+ * verificado con evidencia real en el Escenario 6, ADR-0022 — "una ráfaga
+ * de reportes atrasados en orden entre sí... todos aceptados"). 100
+ * mensajes / 10s (10/s sostenido, con margen de sobra para una ráfaga de
+ * reconexión real) protege contra un cliente roto o malicioso mandando muy
+ * por encima de cualquier cadencia real, sin arriesgar bloquear tráfico
+ * legítimo.
+ */
+const LOCATION_UPDATE_RATE_LIMIT = 100;
+const LOCATION_UPDATE_RATE_WINDOW_SECONDS = 10;
+
+function locationUpdateRateKey(userId: string): string {
+  return `ws-rate:location-update:${userId}`;
+}
 
 interface AuthenticatedSocket extends Socket {
   data: { userId: string };
@@ -47,6 +71,7 @@ export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
 
   constructor(
     @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
+    @Inject(REDIS_CONNECTION) private readonly redis: Redis,
     private readonly locationState: LocationStateService,
     private readonly routeSession: RouteSessionService,
     private readonly broadcast: LocationBroadcastService,
@@ -87,6 +112,7 @@ export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
     @MessageBody() raw: RawLocationReport,
   ): Promise<{
     accepted: boolean;
+    rateLimited?: boolean;
     quality?: string;
     rejectionReason?: string;
     route?: { onRoute: boolean; distanceFromRouteMeters: number };
@@ -95,6 +121,16 @@ export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
     const userId = client.data?.userId;
     if (!userId) {
       throw new UnauthorizedException("Socket sin sesión autenticada");
+    }
+
+    // Rate limiting real — ver ADR-0036: el `APP_GUARD` global no llega
+    // hasta acá. Descartar el mensaje sin cerrar el socket (un pico de
+    // tráfico real, ej. una ráfaga de reconexión, no amerita desconectar a
+    // nadie) — el cliente simplemente reintenta su próximo reporte normal.
+    const withinRate = await checkSocketRateLimit(this.redis, locationUpdateRateKey(userId), LOCATION_UPDATE_RATE_LIMIT, LOCATION_UPDATE_RATE_WINDOW_SECONDS);
+    if (!withinRate) {
+      this.logger.warn(`location:update de ${userId} descartado por rate limit real (>${LOCATION_UPDATE_RATE_LIMIT}/${LOCATION_UPDATE_RATE_WINDOW_SECONDS}s)`);
+      return { accepted: false, rateLimited: true };
     }
 
     const previousState = await this.locationState.getCurrent(userId);
