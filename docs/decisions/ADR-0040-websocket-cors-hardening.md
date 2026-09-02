@@ -84,3 +84,31 @@ mismo). Documentado como pendiente real, no como resuelto.
 - `backend/src/modules/location/location.gateway.ts`, `backend/src/modules/assistant/assistant-voice.gateway.ts`
 - `backend/.env.example`
 - https://supabase.com/docs/guides/auth/password-security (confirma el requisito de plan Pro)
+
+## Actualización 2026-09-02 — bug real encontrado tras desplegar el frontend real
+
+Con `proyecto-mensajeria` ya desplegado real en Railway (ADR-0042) y
+`CORS_ORIGIN` configurado en el backend, una llamada `fetch()` real desde el
+navegador (`https://disciplined-ambition-production-b2c4.up.railway.app`)
+al backend seguía bloqueada por CORS — confirmado con un `fetch()` real
+ejecutado desde la propia página, no simulado: `Access to fetch... has been
+blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present`.
+
+Causa real, encontrada leyendo `backend/src/main.ts`: el CORS de HTTP
+normal (`app.enableCors(...)`) solo se activaba fuera de producción
+(`if (nodeEnv !== "production")`) — en producción quedaba **completamente
+deshabilitado**, sin leer `CORS_ORIGIN` en absoluto. Esa variable solo
+alimentaba `resolveWebSocketCorsOrigin()`, que este ADR conectó ÚNICAMENTE
+a los gateways de WebSocket, nunca al CORS HTTP de `main.ts` — el propio
+comentario del código decía explícitamente "en producción queda
+deshabilitado hasta que exista un dominio real que restringir
+explícitamente", que ya dejó de ser cierto en cuanto existió ese dominio.
+
+Corregido reusando el mismo helper (`REUSE`, no una lógica nueva):
+`app.enableCors({ origin: resolveWebSocketCorsOrigin() })`, sin condicional
+propio — el helper ya distingue desarrollo (permisivo) de producción
+(`CORS_ORIGIN` real, o deshabilitado si no está configurada). Verificado
+real: `typecheck`/`lint`/`build` del backend completo limpios, y un script
+real ejecutando `resolveWebSocketCorsOrigin()` con las 4 combinaciones
+reales de `NODE_ENV`/`CORS_ORIGIN` (incluida la URL real del frontend ya
+desplegado) — 4/4 casos correctos.
