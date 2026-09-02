@@ -4,6 +4,7 @@ import { GoogleGenAI, Modality, Type } from "@google/genai";
 import type { FunctionCall, LiveServerMessage, Schema, Session } from "@google/genai";
 import type { EnvConfig } from "../../config/env.validation";
 import { AssistantToolsService, type ToolDescriptor } from "./assistant-tools.service";
+import type { ToolOutcome } from "./assistant.types";
 
 export interface GeminiLiveCallbacks {
   onText?: (text: string) => void;
@@ -27,6 +28,17 @@ export interface GeminiLiveCallbacks {
    * callarse YA, no esperar a que termine su cola de audio.
    */
   onInterrupted?: () => void;
+  /**
+   * Resultado real de CADA tool call, apenas se ejecuta (antes de que
+   * Gemini termine de responder en voz) — bug real corregido 2026-09-02: no
+   * existía ningún camino para que un resultado de tool llegara al cliente
+   * más que como texto narrado por el modelo, así que una tool con efecto
+   * real en el navegador (`open_navigation`, que necesita que el navegador
+   * mismo abra un link) no tenía forma de comunicárselo. El llamador
+   * (`AssistantVoiceGateway`) decide qué tools le importan; las demás
+   * simplemente no hacen nada con esto.
+   */
+  onToolResult?: (name: string, outcome: ToolOutcome) => void;
   onClose?: () => void;
   onError?: (message: string) => void;
 }
@@ -105,6 +117,23 @@ function toGeminiParameters(parameters: ToolDescriptor["parameters"], requiresCo
     required: parameters.required,
   };
 }
+
+/**
+ * Bug real reportado 2026-09-02 (el fundador probando en la calle):
+ * `startSession()` nunca mandaba `systemInstruction` — el modelo tenía
+ * libertad total para narrar lo que quisiera, incluyendo afirmar que había
+ * "mostrado la ruta en Google Maps" cuando `calculate_route` (solo lectura,
+ * ver su comentario de clase) nunca abrió nada. Este texto es la corrección
+ * mínima: reglas de honestidad + la distinción real entre `calculate_route`
+ * (solo calcula) y `open_navigation` (la única que de verdad abre Maps).
+ */
+const SYSTEM_INSTRUCTION = `Eres el asistente de voz de Vozz/Copiloto — ayudas a conductores en Medellín con mensajes, recordatorios, rutas y modo de manejo, hablando en español.
+
+Regla más importante, sin excepción: NUNCA digas que hiciste algo que no hiciste. Solo puedes afirmar una acción real (enviar un mensaje, crear un recordatorio, abrir una ruta, etc.) DESPUÉS de que la tool correspondiente te devuelva un resultado exitoso — nunca antes, nunca por suponer que "debería funcionar". Si una tool falla o no existe para lo que pide el usuario, dilo con honestidad en vez de inventar que ya se hizo.
+
+Sobre rutas específicamente: "calculate_route" SOLO calcula distancia y tiempo estimado — nunca abre ni muestra nada en el teléfono del usuario por sí sola. Si el usuario quiere ver/abrir la ruta de verdad (dijo que sí, "muéstramela", "ábrela", "llévame"), tienes que llamar "open_navigation" — esa es la única tool que de verdad abre Google Maps. Nunca digas "ya te la mostré" o "deberías verla en Google Maps" a menos que "open_navigation" ya haya respondido con éxito.
+
+Sé breve y natural, como una conversación real mientras alguien maneja — no leas listas ni uses formato de texto, todo lo que digas se convierte en voz.`;
 
 /**
  * Adapter de Gemini Live API (ADR-0034 — reemplaza la elección de OpenAI
@@ -217,6 +246,7 @@ export class GeminiLiveService {
         responseModalities: [Modality.AUDIO],
         outputAudioTranscription: {},
         tools: [{ functionDeclarations }],
+        systemInstruction: SYSTEM_INSTRUCTION,
       },
       callbacks: {
         onopen: () => this.logger.log(`Sesión Gemini Live abierta (userId=${userId}, model=${this.model})`),
@@ -256,6 +286,13 @@ export class GeminiLiveService {
         return;
       }
       const responses = await Promise.all(functionCalls.map((call) => this.executeCall(userId, call)));
+      // Ver comentario de `onToolResult` en `GeminiLiveCallbacks` — se manda
+      // ANTES de que Gemini termine de narrar la respuesta en voz, para que
+      // el navegador pueda reaccionar (ej. `open_navigation` abriendo Maps)
+      // sin esperar al audio.
+      for (const response of responses) {
+        callbacks.onToolResult?.(response.name, response.response.output);
+      }
       session.sendToolResponse({ functionResponses: responses });
       return;
     }

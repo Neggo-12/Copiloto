@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { io, type Socket } from "socket.io-client";
 import {
   BACKEND_BASE_URL,
@@ -357,4 +357,39 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
     ambulanceView,
     closeAmbulanceCorridor,
   };
+}
+
+/**
+ * Bug real reportado 2026-09-02 (el fundador probando en la calle, saliendo
+ * de la pestaña Copiloto hacia Chats/Notas/Contactos): antes, `CopilotoTab`
+ * llamaba `useCopilotoRealtime()` directamente, así que el socket de
+ * `/location` y el `watchPosition` real se cerraban (efecto de limpieza del
+ * hook) apenas `CopilotoTab` se desmontaba — que es exactamente lo que pasa
+ * al cambiar de pestaña PRINCIPAL (`MainShell` en `routes/index.tsx` solo
+ * renderiza una pestaña a la vez). El conductor dejaba de compartir
+ * ubicación y de recibir recordatorios en cuanto abría Chats, rompiendo la
+ * propuesta real de "manos libres mientras manejas".
+ *
+ * Fix (REUSE del mismo patrón `createContext`/`useContext` que ya usa
+ * `AppStore.tsx`): el hook real (`useCopilotoRealtime` arriba, SIN cambios
+ * en su lógica) ahora se monta UNA sola vez en `MainShell` — que vive mientras
+ * el usuario está en cualquiera de las 5 pestañas principales, no solo en
+ * Copiloto — y se comparte por contexto. `CopilotoTab` consume
+ * `useCopilotoRealtimeContext()` en vez de llamar el hook directamente.
+ */
+const CopilotoRealtimeContext = createContext<CopilotoRealtimeState | null>(null);
+
+export function CopilotoRealtimeProvider({ children }: { children: ReactNode }) {
+  const value = useCopilotoRealtime();
+  return (
+    <CopilotoRealtimeContext.Provider value={value}>{children}</CopilotoRealtimeContext.Provider>
+  );
+}
+
+export function useCopilotoRealtimeContext(): CopilotoRealtimeState {
+  const ctx = useContext(CopilotoRealtimeContext);
+  if (!ctx) {
+    throw new Error("useCopilotoRealtimeContext debe usarse dentro de <CopilotoRealtimeProvider>");
+  }
+  return ctx;
 }

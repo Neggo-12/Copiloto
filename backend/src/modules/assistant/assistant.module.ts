@@ -17,6 +17,7 @@ import { CreateNoteReminderTool } from "./tools/create-note-reminder.tool";
 import { GetDrivingModeTool } from "./tools/get-driving-mode.tool";
 import { ListChatsTool } from "./tools/list-chats.tool";
 import { ListVehiclesTool } from "./tools/list-vehicles.tool";
+import { OpenNavigationTool } from "./tools/open-navigation.tool";
 import { ReadMessagesTool } from "./tools/read-messages.tool";
 import { SendMessageTool } from "./tools/send-message.tool";
 import { SetDrivingModeTool } from "./tools/set-driving-mode.tool";
@@ -39,6 +40,7 @@ import { SetDrivingModeTool } from "./tools/set-driving-mode.tool";
     CreateLocationReminderTool,
     CreateNoteReminderTool,
     CalculateRouteTool,
+    OpenNavigationTool,
     ActivateEmergencyCorridorTool,
     SetDrivingModeTool,
     GetDrivingModeTool,

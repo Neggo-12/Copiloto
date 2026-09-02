@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useDrivingMode } from "@/hooks/useDrivingMode";
-import { useCopilotoRealtime } from "@/hooks/useCopilotoRealtime";
+import { useCopilotoRealtimeContext } from "@/hooks/useCopilotoRealtime";
 import { useGeminiVoiceSession } from "@/hooks/useGeminiVoiceSession";
 import { ModoManejoScreen } from "./ModoManejoScreen";
 import { EmergenciaScreen } from "./EmergenciaScreen";
@@ -37,7 +37,13 @@ const SUB_TABS: { key: CopilotoSubTab; label: string }[] = [
 export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
   const [subTab, setSubTab] = useState<CopilotoSubTab>("modo");
   const drivingMode = useDrivingMode();
-  const realtime = useCopilotoRealtime();
+  // Ya no se conecta aquí — `realtime` ahora vive en `CopilotoRealtimeProvider`
+  // (montado en `MainShell`, ver `routes/index.tsx`) para que el socket de
+  // `/location` y el GPS real sigan activos aunque el usuario cambie a
+  // Chats/Notas/Contactos, no solo mientras está en esta pestaña (bug real
+  // corregido 2026-09-02, ver el comentario de `CopilotoRealtimeProvider`
+  // en `useCopilotoRealtime.tsx`).
+  const realtime = useCopilotoRealtimeContext();
   // No conecta sola (a diferencia de `realtime`): abre micrófono real y una
   // sesión real de Gemini, solo cuando el usuario toca el botón en la
   // pantalla — mantenerla montada aquí (como las demás) es seguro porque no

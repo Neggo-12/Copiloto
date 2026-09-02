@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { WelcomeStep } from "@/components/onboarding/WelcomeStep";
 import { PhoneStep } from "@/components/onboarding/PhoneStep";
 import { ProfileStep } from "@/components/onboarding/ProfileStep";
@@ -14,6 +14,7 @@ import { useContacts } from "@/hooks/useContacts";
 import type { ChatId } from "@/lib/domain/types";
 import { TabBar, type MainTabKey } from "@/components/shared/TabBar";
 import { useAppStore } from "@/store/AppStore";
+import { CopilotoRealtimeProvider } from "@/hooks/useCopilotoRealtime";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -83,7 +84,17 @@ function OnboardingFlow() {
   }
 }
 
-/** Cascarón de la navegación principal con las pestañas ya construidas. */
+/**
+ * Cascarón de la navegación principal con las pestañas ya construidas.
+ *
+ * `CopilotoRealtimeProvider` se monta aquí a propósito (2026-09-02, decisión
+ * del fundador: "que siga activo en toda la app") — envuelve las 5 pestañas
+ * principales, no solo Copiloto, para que el socket de `/location` y el GPS
+ * real sigan vivos al cambiar de pestaña. Mounted aquí y no en `__root.tsx`
+ * (donde vive `AppStoreProvider`) porque `MainShell` solo renderiza DESPUÉS
+ * de terminar el onboarding — antes de eso todavía no hay sesión real ni
+ * permisos de ubicación concedidos, así que conectar antes sería prematuro.
+ */
 function MainShell() {
   const [activeTab, setActiveTab] = useState<MainTabKey>("chats");
   const [openChatId, setOpenChatId] = useState<ChatId | null>(null);
@@ -91,8 +102,9 @@ function MainShell() {
   const contacts = useContacts();
   const tabBar = <TabBar activeTab={activeTab} onChange={setActiveTab} />;
 
-  if (activeTab === "chats")
-    return (
+  let content: ReactNode;
+  if (activeTab === "chats") {
+    content = (
       <ChatsTab
         controller={chats}
         contacts={contacts.allContacts}
@@ -101,9 +113,10 @@ function MainShell() {
         onOpenChatIdChange={setOpenChatId}
       />
     );
-  if (activeTab === "notes") return <RemindersTab tabBar={tabBar} />;
-  if (activeTab === "contacts")
-    return (
+  } else if (activeTab === "notes") {
+    content = <RemindersTab tabBar={tabBar} />;
+  } else if (activeTab === "contacts") {
+    content = (
       <ContactsTab
         controller={contacts}
         tabBar={tabBar}
@@ -122,7 +135,11 @@ function MainShell() {
         }}
       />
     );
-  if (activeTab === "copiloto") return <CopilotoTab tabBar={tabBar} />;
+  } else if (activeTab === "copiloto") {
+    content = <CopilotoTab tabBar={tabBar} />;
+  } else {
+    content = <ProfileTab tabBar={tabBar} />;
+  }
 
-  return <ProfileTab tabBar={tabBar} />;
+  return <CopilotoRealtimeProvider>{content}</CopilotoRealtimeProvider>;
 }

@@ -225,6 +225,28 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
       playChunk(payload.data, payload.mimeType);
     });
 
+    // Bug real corregido 2026-09-02: el asistente decía "ya te mostré la
+    // ruta en Google Maps" sin haber abierto nada — `calculate_route`
+    // (backend) es solo lectura. `open_navigation` sí abre Maps de verdad,
+    // pero el resultado (la URL) solo puede convertirse en una pestaña
+    // real desde el navegador — este es ese único punto. Se ignoran los
+    // resultados de cualquier otra tool (ver comentario de
+    // `onToolResult` en `gemini-live.service.ts` del backend: el evento
+    // manda TODAS las tool calls, no solo esta).
+    socket.on(
+      "voice:tool-result",
+      (payload: {
+        name: string;
+        outcome: { status: string; data?: unknown; message?: string };
+      }) => {
+        if (payload?.name !== "open_navigation" || payload.outcome?.status !== "ok") return;
+        const mapsUrl = (payload.outcome.data as { mapsUrl?: string } | undefined)?.mapsUrl;
+        if (mapsUrl) {
+          window.open(mapsUrl, "_blank", "noopener,noreferrer");
+        }
+      },
+    );
+
     // Barge-in real: Gemini mandó `serverContent.interrupted` porque el
     // usuario empezó a hablar mientras la respuesta anterior todavía se
     // estaba reproduciendo — cortar YA ese audio, no esperar a que termine

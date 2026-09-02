@@ -133,6 +133,15 @@ export class AssistantVoiceGateway implements OnGatewayConnection, OnGatewayDisc
       // `GeminiLiveCallbacks.onInterrupted`. El cliente usa esto para cortar
       // YA el audio que ya estaba reproduciendo de la respuesta anterior.
       onInterrupted: () => client.emit("voice:interrupted", {}),
+      // Bug real corregido 2026-09-02: el asistente decía "ya te mostré la
+      // ruta en Google Maps" sin haber abierto nada — `calculate_route` es
+      // solo lectura. Ahora `open_navigation` sí abre Maps de verdad, pero
+      // quien puede llamar `window.open` es el NAVEGADOR, no este backend.
+      // Este evento manda el resultado crudo de CADA tool call (no solo
+      // `open_navigation`) apenas se ejecuta, antes de que Gemini termine de
+      // narrar en voz — el cliente decide qué nombres de tool le importan y
+      // hace caso omiso del resto (ver `GeminiLiveCallbacks.onToolResult`).
+      onToolResult: (name, outcome) => client.emit("voice:tool-result", { name, outcome }),
       onError: (message) => client.emit("voice:error", { message }),
       onClose: () => {
         client.emit("voice:closed", {});
