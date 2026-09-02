@@ -35,6 +35,7 @@ export type LocationRejectionReason =
   | "invalid_accuracy"
   | "invalid_speed"
   | "clock_too_far_in_future"
+  | "out_of_order"
   | "implausible_jump";
 
 export interface LocationValidationResult {

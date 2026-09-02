@@ -4,8 +4,13 @@ import { REDIS_CONNECTION } from "../../common/redis/redis.module";
 import type { LatLng } from "../../common/geo/types";
 import type { LocationState, NormalizedLocation } from "./location.types";
 
-/** Después de cuánto tiempo sin reporte se considera que se perdió la señal (GPS o red). */
-const STALE_AFTER_MS = 30_000;
+/**
+ * Después de cuánto tiempo sin reporte se considera que se perdió la señal
+ * (GPS o red). Exportada (no solo interna) para que otros consumidores
+ * (`EmergencyCorridorService`) puedan citar el mismo número real en logs en
+ * vez de duplicarlo — ver Escenario 6 del simulador, "GPS atrasado".
+ */
+export const STALE_AFTER_MS = 30_000;
 /** Limpieza dura en Redis si el usuario queda desconectado por mucho tiempo — evita acumular claves huérfanas. */
 const REDIS_KEY_TTL_SECONDS = 300;
 /** Índice geoespacial (Redis GEO) de posiciones actuales — un único sorted set, no una clave por usuario. */

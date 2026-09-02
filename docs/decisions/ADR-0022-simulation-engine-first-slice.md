@@ -370,6 +370,18 @@ simulador. No se corrige en este cambio (no era lo pedido y agregaría
 alcance no solicitado) — queda anotado para si el fundador pide
 priorizarlo con evidencia real de que hace falta.
 
+**Confirmación empírica adicional (2026-09-02, construyendo el Escenario
+6)**: el caso simétrico opuesto de este mismo límite se reprodujo en la
+práctica, no solo en teoría — una ruta sintética de 2 puntos con la
+posición actual casi exactamente equidistante de ambos extremos hace que
+`sampleAhead` ancle al vértice más lejano por un empate de punto flotante
+en la comparación de distancias, saltando el muestreo hacia adelante
+directo al final de la ruta y perdiéndose cualquier candidato de en medio.
+Encontrado diseñando el script de verificación del Escenario 6 (no en
+producción) — se corrigió el DISEÑO del script (posición de prueba
+alejada del punto medio), no `sampleAhead` — sigue siendo el mismo límite
+ya documentado arriba, fuera de alcance.
+
 ## Escenario 5: "GPS con ruido" (2026-09-02)
 
 Quinto slice. Auditado antes de construir: `SimulationEngineService` NUNCA
@@ -431,6 +443,91 @@ opcional no afectó a los escenarios que no lo usan.
 
 `typecheck`/`lint`/`build` del backend completo limpios.
 
+## Escenario 6: "GPS atrasado" (2026-09-02)
+
+Sexto slice. Igual que el Escenario 5, tiene dos partes reales — pero a
+diferencia de todos los anteriores, ninguna de las dos necesitó un
+`scenario-6-*.ts` nuevo registrado en el motor: el simulador escribe una
+posición fresca en CADA paso para CADA vehículo (nunca "envejece" un
+reporte a propósito), así que no hay forma de ejercitar "atraso" real a
+través de él sin inventar una capacidad nueva en el motor sin evidencia de
+que haga falta (regla del proyecto). Las dos preguntas reales de este
+escenario se verifican completas con llamadas directas a las funciones/
+servicios reales — mismo criterio que la Parte A del Escenario 5.
+
+**Parte A — bug real encontrado y corregido en `validateRawReport`**
+(`verify-gps-delayed.ts`, script real no comiteado): un reporte ATRASADO
+que llega con `clientTimestamp` igual o ANTERIOR al último ya guardado
+(reintento de red, reordenamiento de paquetes, cola offline que se vacía
+al reconectar en distinto orden) se rechazaba antes con el motivo
+EQUIVOCADO (`implausible_jump`, como si fuera un salto físico imposible).
+Causa raíz: el cálculo de velocidad implícita forzaba `deltaSeconds` a un
+mínimo de 0.001s vía `Math.max(...)` para evitar dividir por cero o un
+número negativo — pero eso hace que CUALQUIER distancia no-cero entre las
+dos posiciones produzca una velocidad absurda, así que el reporte
+terminaba rechazado igual (correcto), solo que con el motivo incorrecto
+(problema real para debugging/observabilidad, no un hueco de seguridad).
+Corregido agregando un chequeo explícito: `clientTimestamp <=
+previous.clientTimestamp` se rechaza de una vez con el motivo real,
+`out_of_order` (nuevo valor en `LocationRejectionReason`), antes de
+calcular velocidad implícita — aceptar ese reporte de todas formas estaría
+mal igual (haría retroceder en el tiempo la posición "actual" guardada),
+así que el rechazo en sí no cambia, solo el motivo. Efecto colateral
+correcto: un reporte DUPLICADO exacto (mismo `clientTimestamp`, reintento
+del cliente) también se rechaza como `out_of_order` — evita reescribir y
+re-emitir de más por un no-op, regla del proyecto "no notificar
+innecesariamente".
+
+Verificado, 9/9 casos, con la función real, sin mocks: primer reporte sin
+`previous` (base); reporte nuevo con velocidad físicamente plausible
+(base, sin cambios); reporte atrasado → `out_of_order` (el bug corregido);
+duplicado exacto → `out_of_order`; una RÁFAGA de reportes atrasados en la
+ENTREGA pero en orden entre sí (cola offline que se vacía junta) — deben
+aceptarse todos, porque atraso de entrega no es lo mismo que fuera de
+orden; y un reordenamiento real DENTRO de esa misma ráfaga → el reporte
+fuera de orden se rechaza igual, aunque sea parte de un lote "atrasado".
+
+**Parte B — gap real encontrado y corregido (visibilidad, no
+comportamiento) en `EmergencyCorridorService.findCandidates`**
+(`verify-corridor-stale.ts`, Redis real, sin simulador): auditando el
+código se encontró una asimetría real. `LocationStateService.findNearby`
+YA excluye candidatos con posición atrasada (`current.stale`, más de
+`STALE_AFTER_MS`=30s sin reporte nuevo) — pero `findCandidates` nunca
+revisaba el `stale` de la posición de la AMBULANCIA misma: si el GPS del
+conductor de la ambulancia se atrasa (túnel, celular en segundo plano,
+zona sin señal), el corredor seguía usando en silencio la última posición
+conocida, sin ninguna señal de que estaba desactualizada. Se decidió NO
+inventar comportamiento nuevo sin evidencia de qué debería hacer distinto
+(¿dejar de alertar? ¿ensanchar el buffer? — ninguna de las dos tiene
+pedido ni evidencia real todavía) — se agregó únicamente una advertencia
+real en logs (mismo patrón ya usado en `location.gateway.ts` para "te
+saliste de tu ruta"), citando el mismo `STALE_AFTER_MS` real (exportado
+de `LocationStateService`, no duplicado) en vez de dejarlo pasar en
+silencio. El corredor sigue degradando de la misma forma que antes (usa
+la última posición conocida, no falla) — lo único nuevo es que ahora
+queda evidencia real de cuándo pasa.
+
+Verificado, 7/7 casos, contra Redis real: ambulancia con posición fresca
+→ sin advertencia; ambulancia con posición atrasada (>30s) → sigue
+funcionando, CON advertencia real en logs; candidato cercano con posición
+fresca → sí aparece (caso base); candidato cercano con posición atrasada
+→ NO aparece (confirma de punta a punta, por primera vez con evidencia
+real, un mecanismo que ya existía pero que ningún escenario anterior
+había ejercitado — los escenarios 1-5 nunca dejan envejecer un reporte);
+el `RoutingProvider` real (Google Routes) nunca se llamó, como se
+esperaba (la ambulancia de este script nunca se desvía de su ruta).
+
+Regresión completa de los Escenarios 1-5 sin cambios (5 alertados únicos,
+53 alertados únicos, aislamiento por par entre corredores concurrentes,
+Escenario 4 con detección + recálculo real activo, Escenario 5 corre sin
+error) — confirma que ninguno de los dos cambios de este slice (el nuevo
+motivo `out_of_order`, el log de posición atrasada) afecta a nada que no
+sea el camino de GPS atrasado — esperado, porque el simulador nunca pasa
+por `validateRawReport` y el log nuevo no cambia el valor que devuelve
+`findCandidates`.
+
+`typecheck`/`lint`/`build` del backend completo limpios.
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
@@ -444,5 +541,6 @@ opcional no afectó a los escenarios que no lo usan.
 - `backend/src/modules/route-session/route-deviation.ts` (`computeDeviation` corregido a distancia real de segmento)
 - `backend/src/modules/navigation/providers/routing-provider.interface.ts`, `google-routing.provider.ts` (`RoutingProvider` real, ya existente desde ADR-0010, reusado — no duplicado)
 - `backend/src/modules/simulation/scenarios/scenario-5-gps-noise.ts`, `backend/src/modules/simulation/simulation.types.ts` (`ambulanceReportNoise`)
-- `backend/src/modules/location/location-normalizer.ts` (`validateRawReport`/`normalizeReport` — mecanismo real de defensa contra GPS con ruido)
-- `backend/src/modules/location/location-state.service.ts` (`findNearby`, GEOSEARCH)
+- `backend/src/modules/location/location-normalizer.ts` (`validateRawReport`/`normalizeReport` — mecanismo real de defensa contra GPS con ruido; motivo `out_of_order` agregado en Escenario 6)
+- `backend/src/modules/location/location-state.service.ts` (`findNearby`, GEOSEARCH; `STALE_AFTER_MS` exportado en Escenario 6)
+- `backend/src/modules/location/location.types.ts` (`LocationRejectionReason` — `out_of_order` agregado)

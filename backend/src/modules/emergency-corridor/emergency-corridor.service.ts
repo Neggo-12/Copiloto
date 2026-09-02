@@ -5,7 +5,7 @@ import { haversineMeters } from "../../common/geo/haversine";
 import { pointAtDistanceAlongPath } from "../../common/geo/interpolate";
 import { decodePolyline } from "../../common/geo/polyline";
 import type { LatLng } from "../../common/geo/types";
-import { LocationStateService } from "../location/location-state.service";
+import { LocationStateService, STALE_AFTER_MS } from "../location/location-state.service";
 import { ROUTING_PROVIDER, type RoutingProvider } from "../navigation/providers/routing-provider.interface";
 import { computeDeviation } from "../route-session/route-deviation";
 import type { ActiveRouteSession } from "../route-session/route-session.types";
@@ -117,6 +117,20 @@ export class EmergencyCorridorService {
     if (!activeRoute) return null;
 
     const currentLocation = await this.locationState.getCurrent(ambulanceDriverId);
+    // GPS atrasado/señal perdida de la PROPIA ambulancia (no de un
+    // candidato — eso ya lo filtra `LocationStateService.findNearby` vía
+    // `current.stale`, ver ADR-0022 Escenario 6): no hay una posición mejor
+    // que usar, así que el corredor sigue funcionando con la última
+    // conocida (degradar así es mejor que dejar de proteger del todo), pero
+    // se deja evidencia real en logs — sin esto, el corredor podía quedar
+    // "protegiendo" en silencio una posición de hace rato sin que nadie se
+    // enterara. No cambia el resultado devuelto (evita inventar
+    // comportamiento nuevo sin evidencia de qué debería hacer distinto).
+    if (currentLocation?.stale) {
+      this.logger.warn(
+        `Ambulancia ${ambulanceDriverId}: última posición conocida tiene más de ${STALE_AFTER_MS / 1000}s (GPS atrasado o señal perdida) — el corredor sigue usándola por no tener una mejor.`,
+      );
+    }
     const currentPosition: LatLng = currentLocation
       ? { latitude: currentLocation.location.latitude, longitude: currentLocation.location.longitude }
       : activeRoute.origin;

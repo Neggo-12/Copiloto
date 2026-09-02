@@ -44,7 +44,24 @@ export function validateRawReport(raw: RawLocationReport, serverNow: number, pre
   }
 
   if (previous) {
-    const deltaSeconds = Math.max((raw.clientTimestamp - previous.clientTimestamp) / 1000, 0.001);
+    // Reporte "atrasado" (llegó tarde por red móvil poco confiable — reintento,
+    // reordenamiento de paquetes, cola offline que se vacía al reconectar) con
+    // un `clientTimestamp` igual o anterior al último reporte YA guardado.
+    // Encontrado con evidencia real (Escenario 6 del simulador, "GPS
+    // atrasado" — ver ADR-0022): antes esto cala por el cálculo de abajo
+    // (`impliedSpeed`) con `deltaSeconds` forzado a un mínimo de 0.001s vía
+    // `Math.max(...)`, así que CUALQUIER distancia no-cero entre las dos
+    // posiciones producía una velocidad implícita absurda y el reporte
+    // terminaba rechazado igual, pero con el motivo equivocado
+    // ("implausible_jump", como si fuera un salto físico imposible, no un
+    // reporte fuera de orden). Aceptar este reporte estaría mal de todas
+    // formas — haría retroceder en el tiempo la posición "actual" guardada —
+    // así que se rechaza explícito, con el motivo real.
+    if (raw.clientTimestamp <= previous.clientTimestamp) {
+      return { ok: false, rejectionReason: "out_of_order", quality: "good" };
+    }
+
+    const deltaSeconds = (raw.clientTimestamp - previous.clientTimestamp) / 1000;
     const distanceMeters = haversineMeters(
       { latitude: previous.latitude, longitude: previous.longitude },
       { latitude: raw.latitude, longitude: raw.longitude },
