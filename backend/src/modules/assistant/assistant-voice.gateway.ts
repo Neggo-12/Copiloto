@@ -6,6 +6,7 @@ import type { Redis } from "ioredis";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
 import { REDIS_CONNECTION } from "../../common/redis/redis.module";
 import { checkSocketRateLimit } from "../../common/rate-limit/socket-rate-limit";
+import { resolveWebSocketCorsOrigin } from "../../common/websocket/websocket-cors";
 import { GeminiLiveService, type GeminiLiveSessionHandle } from "./gemini-live.service";
 
 interface AuthenticatedSocket extends Socket {
@@ -75,7 +76,7 @@ function voiceAudioChunkRateKey(userId: string): string {
  * más" que ya aplica `REROUTE_COOLDOWN_SECONDS` en el corredor de
  * emergencia, ahora aplicado al costo real de Gemini Live.
  */
-@WebSocketGateway({ namespace: "assistant-voice", cors: { origin: "*" } })
+@WebSocketGateway({ namespace: "assistant-voice", cors: { origin: resolveWebSocketCorsOrigin() } })
 export class AssistantVoiceGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(AssistantVoiceGateway.name);
   /** Socket con la sesión real activa de cada usuario — en memoria a propósito: la sesión Gemini Live es un objeto vivo atado a ESTE proceso, no algo que sobreviva un reinicio ni que deba compartirse entre instancias (razón real distinta a por qué otros estados sí usan Redis en este proyecto). */

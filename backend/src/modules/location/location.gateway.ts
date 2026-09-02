@@ -14,6 +14,7 @@ import type { Redis } from "ioredis";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
 import { REDIS_CONNECTION } from "../../common/redis/redis.module";
 import { checkSocketRateLimit } from "../../common/rate-limit/socket-rate-limit";
+import { resolveWebSocketCorsOrigin } from "../../common/websocket/websocket-cors";
 import { decodePolyline } from "../../common/geo/polyline";
 import { GeofenceTriggerService, type TriggeredReminder } from "../location-reminders/geofence-trigger.service";
 import { RouteSessionService } from "../route-session/route-session.service";
@@ -62,7 +63,7 @@ interface AuthenticatedSocket extends Socket {
  * "reconexión" y "tracking realtime" de la lista de requisitos sin necesitar
  * sesión pegajosa.
  */
-@WebSocketGateway({ namespace: "location", cors: { origin: "*" } })
+@WebSocketGateway({ namespace: "location", cors: { origin: resolveWebSocketCorsOrigin() } })
 export class LocationGateway implements OnGatewayConnection, OnGatewayInit {
   private readonly logger = new Logger(LocationGateway.name);
 
