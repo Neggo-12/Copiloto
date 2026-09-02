@@ -21,12 +21,25 @@
 # Nitro escucha en HOST/PORT. Por defecto HOST es `localhost` (no acepta
 # conexiones externas) — Railway necesita `HOST=0.0.0.0` explícito, fijado
 # abajo en la etapa de runtime. Railway inyecta PORT real en runtime.
+#
+# VITE_* son variables de BUILD, no de runtime: Vite las "hornea" dentro del
+# bundle en el momento de `bun run build` (import.meta.env), no se leen
+# después con la app ya corriendo. Verificado real contra la documentación
+# oficial de Railway (docs.railway.com/builds/dockerfiles, 2026-09-02):
+# Railway SÍ pasa las variables del servicio al build de Docker, pero SOLO
+# las que el propio Dockerfile declara con `ARG` — sin esto, el build corre
+# con esos valores vacíos, la app queda compilada apuntando a Supabase con
+# credenciales vacías, y falla con 500 en cada request real (encontrado y
+# confirmado así, con el deploy real de Railway devolviendo 500).
 
 FROM oven/bun:1-alpine AS builder
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY . .
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
+ARG VITE_BACKEND_URL
 ENV NITRO_PRESET=node-server
 RUN bun run build
 
