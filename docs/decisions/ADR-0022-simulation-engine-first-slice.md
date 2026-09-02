@@ -528,6 +528,59 @@ por `validateRawReport` y el log nuevo no cambia el valor que devuelve
 
 `typecheck`/`lint`/`build` del backend completo limpios.
 
+## Escenario 7: "usuario sin conexión" (2026-09-02)
+
+Séptimo slice. Igual que el Escenario 6, sin `scenario-7-*.ts` nuevo
+registrado en el motor — "desconexión" es la misma clase de problema que
+"atraso" desde la perspectiva del sistema (ausencia de reportes en el
+tiempo), y el simulador nunca deja de reportar del todo para ningún
+vehículo. Verificado completo con `verify-user-offline.ts` (script real no
+comiteado, Redis real, sin simulador). Auditado antes de construir:
+`LocationGateway` NO implementa `OnGatewayDisconnect` (a diferencia de
+`AssistantVoiceGateway`, que sí) — no hay ningún código que reaccione AL
+INSTANTE a una desconexión de socket. Dos partes, ninguna encontró un bug
+— la primera vez en esta serie de escenarios que el resultado es "confirma
+que ya funciona bien", no "encontró y corrigió algo".
+
+**Parte A — candidato se desconecta a mitad del corredor**: confirma que
+la exclusión por posición atrasada (`LocationStateService.findNearby`, ya
+verificada en el Escenario 6) es suficiente por sí sola — un candidato que
+deja de reportar del todo tiene exactamente el mismo efecto, desde el
+punto de vista del corredor, que uno "atrasado para siempre": después de
+`STALE_AFTER_MS` (30s) deja de aparecer como candidato, sin necesitar
+ningún manejo especial de desconexión. También confirma que notificar a
+alguien desconectado (`corridor:closed` al cerrar el corredor) no lanza ni
+rompe nada — `Socket.IO` simplemente no tiene a quién entregarle el
+evento a esa room, es un no-op seguro por diseño.
+
+**Parte B — la ambulancia se desconecta a mitad de un traslado**: primera
+verificación real de `AlertPolicyService.sweepExpired()`/
+`CorridorExpirySweepProcessor` (el barrido periódico cada 15 min,
+ADR-0020) — nunca se había ejercitado con evidencia real, solo existía por
+lectura de código. Confirma con evidencia real, no corrige, la brecha ya
+documentada en ADR-0020: el disparador del barrido es el TTL de la SESIÓN
+DE RUTA (4h), completamente independiente de si la ambulancia sigue
+reportando posición. Si la ambulancia se desconecta, su posición queda
+"atrasada" en 30s (mismo mecanismo del Escenario 6), pero el corredor
+sigue "activo" para el barrido — y por lo tanto sigue alertando
+candidatos nuevos que entren en rango — hasta que la sesión de ruta misma
+cumpla su TTL de 4 horas. Recién ahí `sweepExpired` cierra el corredor y
+notifica "ya pasó" a quien se había alertado. Sigue siendo una decisión
+deliberada del fundador ("diferido a propósito hasta tener evidencia real
+de que hacía falta cerrarlo antes") — esta es esa evidencia, con números
+concretos, no un hallazgo nuevo que obligue a actuar ahora.
+
+Verificado, 12/12 casos: candidato conectado detectado y alertado (base);
+candidato desconectado ya no aparece; cerrar el corredor con un candidato
+desconectado no lanza y sí lo intenta notificar; ambulancia desconectada
+con sesión de ruta aún vigente → el barrido NO cierra el corredor todavía;
+sesión de ruta expirada (simulada con `routeSession.clear()`, equivalente
+real a que el TTL de Redis se cumpla) → el barrido SÍ cierra y notifica;
+barrido con cero corredores activos no lanza. Sin cambios de código en
+este slice — solo evidencia real de un comportamiento que ya era correcto.
+`typecheck`/`lint`/`build` del backend completo limpios (sin cambios que
+verificar, se confirmó que seguían limpios).
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
@@ -544,3 +597,5 @@ por `validateRawReport` y el log nuevo no cambia el valor que devuelve
 - `backend/src/modules/location/location-normalizer.ts` (`validateRawReport`/`normalizeReport` — mecanismo real de defensa contra GPS con ruido; motivo `out_of_order` agregado en Escenario 6)
 - `backend/src/modules/location/location-state.service.ts` (`findNearby`, GEOSEARCH; `STALE_AFTER_MS` exportado en Escenario 6)
 - `backend/src/modules/location/location.types.ts` (`LocationRejectionReason` — `out_of_order` agregado)
+- `backend/src/modules/emergency-corridor/{alert-policy.service.ts,corridor-expiry-sweep.processor.ts}`, `backend/src/common/queue/queue-names.ts` (`sweepExpired`/barrido real, verificado con evidencia en Escenario 7)
+- `docs/decisions/ADR-0020-emergency-corridor-closure.md` (brecha del barrido vs. TTL de ruta, confirmada con evidencia real en Escenario 7, sin corregir — decisión deliberada del fundador)
