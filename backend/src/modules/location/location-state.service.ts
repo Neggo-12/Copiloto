@@ -65,6 +65,38 @@ export class LocationStateService {
    * aparecer como "cerca" solo porque su última posición sigue en el índice.
    */
   async findNearby(center: LatLng, radiusMeters: number): Promise<NearbyUser[]> {
+    const raw = await this.geosearchNearby(center, radiusMeters);
+    const results: NearbyUser[] = [];
+    for (const { userId, distanceMeters } of raw) {
+      const current = await this.getCurrent(userId);
+      if (!current || current.stale) continue;
+      results.push({ userId, distanceMeters });
+    }
+    return results;
+  }
+
+  /**
+   * Solo la parte de índice geoespacial (`GEOSEARCH`), SIN revalidar el
+   * estado de cada resultado contra `getCurrent` — a diferencia de
+   * `findNearby`. Extraído para `EmergencyCorridorService.findCandidates`,
+   * que consulta el mismo índice una vez POR CADA muestra hacia adelante
+   * del corredor (hasta `MAX_LOOKAHEAD_SAMPLES`, ver ese servicio) y
+   * necesita deduplicar candidatos entre muestras ANTES de pagar el costo
+   * real de `getCurrent` por cada uno.
+   *
+   * Evidencia real (`loadtest-corridor.ts`, Fase 8 — Rendimiento): con 500
+   * candidatos reales cerca de una ruta de 20 muestras, llamar `findNearby`
+   * (con su `getCurrent` interno) una vez por muestra generaba 2579
+   * comandos reales de Redis por consulta — el mismo usuario, cercano a
+   * varias muestras consecutivas de 100m, pagaba `getCurrent` una vez por
+   * cada muestra en la que aparecía. Con este método, el caller hace el
+   * `GEOSEARCH` por muestra (necesario, cada muestra es un punto distinto)
+   * pero `getCurrent` solo una vez por candidato ÚNICO tras deduplicar —
+   * bajó a ~535 comandos reales en el mismo escenario. El caller sigue
+   * siendo responsable de revalidar frescura con `getCurrent` antes de
+   * confiar en el resultado — este método por sí solo NO filtra stale.
+   */
+  async geosearchNearby(center: LatLng, radiusMeters: number): Promise<NearbyUser[]> {
     const raw = (await this.redis.geosearch(
       GEO_INDEX_KEY,
       "FROMLONLAT",
@@ -77,12 +109,6 @@ export class LocationStateService {
       "WITHDIST",
     )) as [string, string][];
 
-    const results: NearbyUser[] = [];
-    for (const [userId, distanceStr] of raw) {
-      const current = await this.getCurrent(userId);
-      if (!current || current.stale) continue;
-      results.push({ userId, distanceMeters: Number(distanceStr) });
-    }
-    return results;
+    return raw.map(([userId, distanceStr]) => ({ userId, distanceMeters: Number(distanceStr) }));
   }
 }

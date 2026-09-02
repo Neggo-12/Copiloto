@@ -175,25 +175,41 @@ export class EmergencyCorridorService {
     // Escenario 9, corregido aquí en el Escenario 12 (ver ADR-0022).
     const otherActiveAmbulances = new Set(await this.redis.smembers(ACTIVE_AMBULANCES_KEY));
 
+    // `geosearchNearby` (no `findNearby`): junta candidatos de TODAS las
+    // muestras primero, sin pagar `getCurrent` por cada ocurrencia — ver el
+    // comentario de `geosearchNearby` (evidencia real de `loadtest-corridor.ts`,
+    // Fase 8: esto bajó de 2579 a ~535 comandos reales de Redis por consulta
+    // con 500 candidatos cerca de una ruta de 20 muestras). El resultado
+    // final (candidato más cercano entre todas las muestras, filtrado por
+    // frescura real) es idéntico al de antes — solo cambia CUÁNDO se paga el
+    // costo de revalidar cada usuario.
     const nearest = new Map<string, number>();
     for (const point of samples) {
-      const candidates = await this.locationState.findNearby(point, bufferMeters);
-      for (const candidate of candidates) {
-        if (candidate.userId === ambulanceDriverId) continue;
-        if (otherActiveAmbulances.has(candidate.userId)) continue;
-        const existing = nearest.get(candidate.userId);
-        if (existing === undefined || candidate.distanceMeters < existing) {
-          nearest.set(candidate.userId, candidate.distanceMeters);
+      const hits = await this.locationState.geosearchNearby(point, bufferMeters);
+      for (const hit of hits) {
+        if (hit.userId === ambulanceDriverId) continue;
+        if (otherActiveAmbulances.has(hit.userId)) continue;
+        const existing = nearest.get(hit.userId);
+        if (existing === undefined || hit.distanceMeters < existing) {
+          nearest.set(hit.userId, hit.distanceMeters);
         }
       }
     }
 
-    return Array.from(nearest.entries()).map(([userId, distanceMeters]) => ({
-      userId,
-      distanceMeters: Math.round(distanceMeters),
-      state: "potential_conflict" as const,
-      severity: severityFor(distanceMeters, bufferMeters),
-    }));
+    const results: CorridorCandidate[] = [];
+    for (const [userId, distanceMeters] of nearest) {
+      // Mismo filtro real que antes aplicaba `findNearby` por cada
+      // ocurrencia — ahora una sola vez por candidato único.
+      const current = await this.locationState.getCurrent(userId);
+      if (!current || current.stale) continue;
+      results.push({
+        userId,
+        distanceMeters: Math.round(distanceMeters),
+        state: "potential_conflict",
+        severity: severityFor(distanceMeters, bufferMeters),
+      });
+    }
+    return results;
   }
 
   /**
