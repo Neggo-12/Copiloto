@@ -68,9 +68,7 @@ function phoneOnlyCredentials(phoneNumber: string): {
 } {
   const digitsOnly = phoneNumber.replace(/\D/g, "");
   const base: string | undefined = import.meta.env["VITE_SHADOW_EMAIL_BASE"];
-  const [localPart, domain] = base?.includes("@")
-    ? base.split("@")
-    : [undefined, undefined];
+  const [localPart, domain] = base?.includes("@") ? base.split("@") : [undefined, undefined];
 
   const email =
     localPart && domain
@@ -96,9 +94,7 @@ function phoneOnlyCredentials(phoneNumber: string): {
  * un mensaje claro ("Email not confirmed") si de verdad siguiera activo
  * (hoy está desactivado, confirmado real contra el proyecto).
  */
-export async function signInByPhoneOnly(
-  phoneNumber: string,
-): Promise<VerifyOtpResult> {
+export async function signInByPhoneOnly(phoneNumber: string): Promise<VerifyOtpResult> {
   const { email, password } = phoneOnlyCredentials(phoneNumber);
 
   const signUp = await supabase.auth.signUp({ email, password });
@@ -164,9 +160,7 @@ export interface RequestPhoneOtpResult {
 }
 
 /** Pide el código por SMS real. */
-export async function requestPhoneOtp(
-  input: RequestPhoneOtpInput,
-): Promise<RequestPhoneOtpResult> {
+export async function requestPhoneOtp(input: RequestPhoneOtpInput): Promise<RequestPhoneOtpResult> {
   if (!input.phoneNumber.startsWith("+")) {
     return {
       ok: false,
@@ -194,9 +188,7 @@ export interface VerifyOtpInput {
 }
 
 /** Verifica el OTP contra Supabase Auth. Crea la sesión si el código es correcto. */
-export async function verifyPhoneOtp(
-  input: VerifyOtpInput,
-): Promise<VerifyOtpResult> {
+export async function verifyPhoneOtp(input: VerifyOtpInput): Promise<VerifyOtpResult> {
   if (!/^\d{6}$/.test(input.code)) {
     return { ok: false, errorMessage: "El código debe tener 6 dígitos." };
   }

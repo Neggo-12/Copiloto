@@ -28,8 +28,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "Vozz — Mensajes y notas de voz" },
       {
         property: "og:description",
-        content:
-          "Chats, notas de voz y tu libreta personal, en una sola app móvil.",
+        content: "Chats, notas de voz y tu libreta personal, en una sola app móvil.",
       },
     ],
   }),
@@ -37,8 +36,7 @@ export const Route = createFileRoute("/")({
 });
 
 function OnboardingFlow() {
-  const { onboardingStep, setOnboardingStep, completeOnboarding } =
-    useAppStore();
+  const { onboardingStep, setOnboardingStep, completeOnboarding } = useAppStore();
 
   switch (onboardingStep) {
     case "welcome":
@@ -124,11 +122,7 @@ function MainShell() {
           // Abre el chat existente o lo crea de verdad en Supabase, y salta
           // a la pestaña Chats.
           void chats
-            .startChatWithUser(
-              contact.linkedUserId,
-              contact.displayName,
-              contact.avatarUrl,
-            )
+            .startChatWithUser(contact.linkedUserId, contact.displayName, contact.avatarUrl)
             .then((chatId) => {
               if (!chatId) return;
               chats.openChat(chatId);
