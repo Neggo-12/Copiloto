@@ -742,6 +742,38 @@ autorización ya existente, primera vez verificada a través del
 controller real). `typecheck`/`lint`/`build` del backend completo
 limpios.
 
+## Escenario 11: "conductor entra/sale del corredor" (2026-09-02)
+
+Décimo primer slice. Ninguna de las capas involucradas (`LocationStateService.findNearby`,
+`EmergencyCorridorService.findCandidates`, `AlertPolicyService.evaluateAndDispatch`)
+guarda memoria de posiciones pasadas — cada consulta es un `GEOSEARCH` real
+sobre la posición ACTUAL (confirmado leyendo `location-state.service.ts`), así
+que "entrar/salir del corredor" en sí mismo ya funciona por construcción: un
+candidato que sale del buffer geográfico simplemente deja de aparecer en la
+próxima consulta, sin necesitar ningún manejo especial. Lo real que faltaba
+verificar con evidencia (nunca ejercitado en los Escenarios 6-10, que solo
+mueven candidatos una vez) es cómo se comporta el dedup/cooldown de 30s
+(`AlertPolicyService`, `alertStateKey`) a través de MÚLTIPLES transiciones
+entrada→salida→reentrada del mismo candidato durante el mismo traslado.
+
+**Sin bugs encontrados** — el mecanismo ya existente se comporta correctamente
+en cada transición real, verificado con Redis real, 17/17 casos: candidato
+fuera del buffer no se alerta ni aparece en ningún resultado; al entrar por
+primera vez se alerta y queda en el set de "alertados del traslado"
+(`corridor:alerted:<id>`); al salir del buffer sigue en ese set (así puede
+recibir el aviso real de "ya pasó" si el corredor cierra mientras está
+afuera — confirmado en el caso G); al reentrar DENTRO de los 30s de cooldown
+no se genera una alerta nueva (`skippedByCooldown`, sin notificación
+duplicada); al reentrar DESPUÉS de que el cooldown expira de verdad
+(simulado borrando la clave, mismo patrón que Escenarios 6-8) sí se genera
+una alerta nueva legítima, y el set de alertados no duplica al candidato
+(`SADD` es idempotente); cerrar el corredor mientras el candidato está
+afuera del buffer en ese instante igual lo notifica con el motivo real y
+vacía el set; sin ruta activa tras cerrar, `findCandidates` vuelve a
+devolver `null` sin romper nada. Sin cambios de código —
+`typecheck`/`lint`/`build` del backend completo limpios (sin cambios que
+verificar, se confirmó que seguían limpios).
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
