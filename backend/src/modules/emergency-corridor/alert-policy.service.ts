@@ -68,8 +68,14 @@ function alertedSetKey(ambulanceDriverId: string): string {
  * usuarios de la plataforma; se agrega en cada `evaluateAndDispatch` (solo
  * se llama cuando ya se confirmó que hay ruta activa) y se quita siempre
  * que el corredor se cierra, por cualquier motivo (`closeCorridor`).
+ *
+ * Exportada (no solo interna) para que `EmergencyCorridorService.findCandidates`
+ * también la use — ver Escenario 12 (ADR-0022, "dos corredores se cruzan"):
+ * mismo set real, no una copia ni un mecanismo nuevo, para que una ambulancia
+ * con corredor activo nunca se trate como candidato civil del corredor de
+ * OTRA ambulancia.
  */
-const ACTIVE_AMBULANCES_KEY = "corridor:active-ambulances";
+export const ACTIVE_AMBULANCES_KEY = "corridor:active-ambulances";
 
 export interface AlertDispatchResult {
   alerted: string[];

@@ -10,6 +10,7 @@ import { ROUTING_PROVIDER, type RoutingProvider } from "../navigation/providers/
 import { computeDeviation } from "../route-session/route-deviation";
 import type { ActiveRouteSession } from "../route-session/route-session.types";
 import { RouteSessionService } from "../route-session/route-session.service";
+import { ACTIVE_AMBULANCES_KEY } from "./alert-policy.service";
 import type { CorridorCandidate, CorridorSeverity } from "./emergency-corridor.types";
 
 /**
@@ -162,11 +163,24 @@ export class EmergencyCorridorService {
       samples = this.sampleAhead(routePoints, currentPosition);
     }
 
+    // Otras ambulancias con corredor activo AHORA MISMO — mismo set real que
+    // usa `AlertPolicyService`/`sweepExpired` (`ACTIVE_AMBULANCES_KEY`), no
+    // un mecanismo nuevo. `LocationStateService.findNearby` indexa a TODOS
+    // los usuarios que reportan ubicación por igual (conductores de
+    // ambulancia incluidos, reportan por el mismo `location.gateway.ts`), así
+    // que sin este filtro, cuando dos corredores se cruzan geográficamente,
+    // el de una ambulancia trata a la OTRA ambulancia (y por transitividad a
+    // sus candidatos ya alertados, que aparecen cerca de ella) como un
+    // candidato civil más — encontrado con evidencia real construyendo el
+    // Escenario 9, corregido aquí en el Escenario 12 (ver ADR-0022).
+    const otherActiveAmbulances = new Set(await this.redis.smembers(ACTIVE_AMBULANCES_KEY));
+
     const nearest = new Map<string, number>();
     for (const point of samples) {
       const candidates = await this.locationState.findNearby(point, bufferMeters);
       for (const candidate of candidates) {
         if (candidate.userId === ambulanceDriverId) continue;
+        if (otherActiveAmbulances.has(candidate.userId)) continue;
         const existing = nearest.get(candidate.userId);
         if (existing === undefined || candidate.distanceMeters < existing) {
           nearest.set(candidate.userId, candidate.distanceMeters);

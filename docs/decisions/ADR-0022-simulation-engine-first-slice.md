@@ -774,6 +774,72 @@ devolver `null` sin romper nada. Sin cambios de código —
 `typecheck`/`lint`/`build` del backend completo limpios (sin cambios que
 verificar, se confirmó que seguían limpios).
 
+## Escenario 12: "dos corredores se cruzan" (2026-09-02)
+
+Décimo segundo y último slice del roadmap mínimo de simulación. Motivado
+por evidencia real, no hipotética: durante el Escenario 9, la primera
+versión de la prueba de aislamiento entre ambulancias reusó las mismas
+coordenadas para "dos ambulancias distintas" y el corredor de una SÍ trató
+a la otra ambulancia como un candidato civil más — se corrigió el diseño
+de esa prueba en su momento (separando coordenadas), pero quedó anotado
+como evidencia real para este escenario, con la pregunta correcta: ¿qué
+pasa cuando dos corredores de ambulancias real y geográficamente se
+cruzan, no por un descuido de prueba?
+
+**Bug real encontrado y corregido**: `LocationStateService.findNearby`
+indexa a TODOS los usuarios que reportan ubicación por igual (conductores
+de ambulancia incluidos, reportan por el mismo `location.gateway.ts` que
+cualquier candidato civil) — y `EmergencyCorridorService.findCandidates`
+solo excluía de sus resultados a la propia ambulancia consultante
+(`candidate.userId === ambulanceDriverId`), nunca a OTRAS ambulancias con
+corredor activo. Con dos rutas que se cruzan de verdad, una ambulancia
+podía aparecer como "candidato civil" en el corredor de la otra —
+recibiendo (o generando) el mensaje real "Ambulancia aproximándose,
+facilite el paso", pensado para un conductor civil, no para otra
+ambulancia en traslado. Corregido reusando `ACTIVE_AMBULANCES_KEY` (el
+mismo set real que ya mantiene `AlertPolicyService` para `sweepExpired`,
+exportado — no un mecanismo nuevo ni una copia): `findCandidates` ahora
+excluye de sus resultados a cualquier `userId` que esté en ese set,
+además de a sí misma. Ambas ambulancias ya quedan registradas ahí desde
+su primer poll real (`GET /emergency/corridor/candidates` llama
+`findCandidates` + `evaluateAndDispatch` juntos, cada 5-10s), así que en
+uso real esta exclusión aplica desde el segundo poll de cada ambulancia
+en adelante — una ventana de carrera mínima y de bajísima probabilidad en
+el primerísimo poll de dos ambulancias que arrancan su corredor
+simultáneamente, documentada aquí, no cerrada por no haber evidencia de
+que haga falta.
+
+Verificado con Redis real, 18/18 casos, con dos rutas rectas que se
+cruzan de verdad (no coordenadas idénticas, evidencia real de un cruce
+geográfico): con las ambulancias lejos entre sí, ninguna detecta a la
+otra (caso base); moviendo a la ambulancia B directo sobre la ruta de la
+ambulancia A, A ya NO la trata como candidato civil (antes del fix, esta
+misma prueba falla — confirmado revirtiendo el fix temporalmente y
+reproduciendo la falla real antes de restaurarlo, evidencia de que la
+prueba de verdad cubre el bug); simétrico para B con A sobre su ruta; un
+candidato CIVIL real parado justo en el punto de cruce sí es detectado
+por AMBAS ambulancias y alertado de forma independiente por cada una (2
+notificaciones reales distintas, una con cada `ambulanceDriverId`, sin
+que el cooldown de una bloquee a la otra — el filtro nuevo solo excluye
+ambulancias, nunca candidatos civiles); cerrar el corredor de una
+ambulancia no toca el set de alertados ni el cooldown real de la otra
+(aislamiento bajo cruce geográfico genuino, no solo bajo coordenadas
+separadas a propósito como en el Escenario 9); sin ruta activa tras
+cerrar/limpiar ambas, `findCandidates` vuelve a `null`. Regresión
+puntual del caso base de un solo corredor (sin otras ambulancias
+activas): candidato dentro del buffer se sigue detectando y alertando
+exactamente igual que antes del cambio. `typecheck`/`lint`/`build` del
+backend completo limpios.
+
+Con este escenario se completan los 12 escenarios mínimos del roadmap
+(Etapa 7). Quedan pendientes, fuera de alcance de "escenarios mínimos":
+las métricas de latencia/falsos positivos/conflictos perdidos (roadmap,
+aún no específicas de ningún escenario) y los hallazgos ya documentados
+y deliberadamente no corregidos (`sampleAhead` con lookahead fijo de
+2km; el cooldown de recálculo de ruta no se limpia al cancelar,
+Escenario 9) — ninguno bloqueante, todos con evidencia real y
+justificación de por qué no se corrigieron todavía.
+
 ## Referencias
 
 - `docs/decisions/04_ROADMAP_Y_ALCANCE.md` (Etapa 7)
@@ -793,3 +859,4 @@ verificar, se confirmó que seguían limpios).
 - `backend/src/modules/emergency-corridor/{alert-policy.service.ts,corridor-expiry-sweep.processor.ts}`, `backend/src/common/queue/queue-names.ts` (`sweepExpired`/barrido real, verificado con evidencia en Escenario 7)
 - `docs/decisions/ADR-0020-emergency-corridor-closure.md` (brecha del barrido vs. TTL de ruta, confirmada con evidencia real en Escenario 7, sin corregir — decisión deliberada del fundador)
 - `backend/src/modules/emergency-corridor/emergency-corridor.controller.ts` (validación real de `reason` agregada en Escenario 10 — primera vez que un escenario prueba el controller, no solo los servicios)
+- `backend/src/modules/emergency-corridor/emergency-corridor.service.ts` (`findCandidates` ahora excluye a otras ambulancias con corredor activo, Escenario 12), `backend/src/modules/emergency-corridor/alert-policy.service.ts` (`ACTIVE_AMBULANCES_KEY` exportada para ese fix, mismo set real ya usado por `sweepExpired`)
