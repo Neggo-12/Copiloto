@@ -116,7 +116,46 @@ function speak(text: string): void {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = "es-ES";
+  // `volume` no tiene default garantizado en todos los navegadores (algunos
+  // heredan el último valor usado por otra utterance) — se fija explícito a
+  // propósito, ver gap real reportado 2026-09-03 (recordatorio "casi no se
+  // escuchó" con un intercomunicador Bluetooth conectado).
+  utterance.volume = 1;
   window.speechSynthesis.speak(utterance);
+}
+
+/**
+ * Gap real reportado 2026-09-03: un recordatorio de ubicación se disparó de
+ * verdad (quedó "Disparada"/"Cumplida" en Notas, confirmado con Postgres) y
+ * el fundador "medio escuchó" el aviso de voz, manejando con un
+ * intercomunicador Bluetooth conectado. `speechSynthesis` en navegador móvil
+ * se puede frenar o sonar más bajo cuando la pantalla se apaga/bloquea — el
+ * navegador entra en un modo de fondo más agresivo con los timers y el audio.
+ * No es una garantía total (el enrutamiento de audio hacia un Bluetooth
+ * externo tiene sus propios límites del navegador/SO, fuera del alcance de
+ * esto), pero mantener la pantalla encendida mientras el rastreo de
+ * ubicación está activo (Modo conducción) reduce ese riesgo real. Screen
+ * Wake Lock API: soportada en iOS Safari/WebKit desde 16.4+ y en Chrome
+ * Android — si no está disponible, falla en silencio (no bloquea el rastreo).
+ */
+async function requestWakeLock(): Promise<WakeLockSentinel | null> {
+  if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return null;
+  try {
+    return await (navigator as Navigator & { wakeLock: WakeLock }).wakeLock.request("screen");
+  } catch {
+    // Puede fallar por batería baja, pestaña no visible en ese instante, etc.
+    // — no es crítico para el rastreo real, así que se ignora.
+    return null;
+  }
+}
+
+interface WakeLockSentinel {
+  released: boolean;
+  release(): Promise<void>;
+  addEventListener(type: "release", listener: () => void): void;
+}
+interface WakeLock {
+  request(type: "screen"): Promise<WakeLockSentinel>;
 }
 
 /**
@@ -139,10 +178,20 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
     checked: false,
   });
   const socketRef = useRef<Socket | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let watchId: number | null = null;
+
+    // El Wake Lock se libera solo cuando la pestaña se oculta (cambiar de
+    // app, apagar pantalla) — hay que volver a pedirlo cuando el usuario
+    // regresa, mientras el rastreo siga activo.
+    async function reacquireWakeLockOnVisible() {
+      if (document.visibilityState !== "visible" || cancelled) return;
+      if (wakeLockRef.current && !wakeLockRef.current.released) return;
+      wakeLockRef.current = await requestWakeLock();
+    }
 
     async function connect() {
       setConnectionStatus("connecting");
@@ -221,6 +270,10 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
       }
 
       setGeoStatus("watching");
+      wakeLockRef.current = await requestWakeLock();
+      if (!cancelled && typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", reacquireWakeLockOnVisible);
+      }
       watchId = navigator.geolocation.watchPosition(
         (position) => {
           if (cancelled || !socketRef.current?.connected) return;
@@ -264,6 +317,11 @@ export function useCopilotoRealtime(): CopilotoRealtimeState {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       socketRef.current?.disconnect();
       socketRef.current = null;
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", reacquireWakeLockOnVisible);
+      }
+      void wakeLockRef.current?.release();
+      wakeLockRef.current = null;
     };
   }, []);
 

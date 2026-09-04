@@ -12,6 +12,7 @@ import { AssistantVoiceGateway } from "./assistant-voice.gateway";
 import { GeminiLiveService } from "./gemini-live.service";
 import { ActivateEmergencyCorridorTool } from "./tools/activate-emergency-corridor.tool";
 import { CalculateRouteTool } from "./tools/calculate-route.tool";
+import { CallPoliceTool } from "./tools/call-police.tool";
 import { CreateLocationReminderTool } from "./tools/create-location-reminder.tool";
 import { CreateNoteReminderTool } from "./tools/create-note-reminder.tool";
 import { GetDrivingModeTool } from "./tools/get-driving-mode.tool";
@@ -42,6 +43,7 @@ import { SetDrivingModeTool } from "./tools/set-driving-mode.tool";
     CalculateRouteTool,
     OpenNavigationTool,
     ActivateEmergencyCorridorTool,
+    CallPoliceTool,
     SetDrivingModeTool,
     GetDrivingModeTool,
     ListVehiclesTool,

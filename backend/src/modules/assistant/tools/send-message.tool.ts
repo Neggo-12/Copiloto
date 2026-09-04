@@ -46,7 +46,12 @@ export class SendMessageTool implements AssistantTool {
         if (found.error === "ambiguous") {
           return { status: "error", message: `Hay varios contactos que coinciden con "${contactNameArg}": ${found.matches.join(", ")}. ¿Cuál exactamente?` };
         }
-        return { status: "error", message: `No encontré un chat con "${contactNameArg}".` };
+        // Desde 2026-09-03, `resolveChatByContactName` ya crea el chat si el
+        // contacto existe pero nunca han hablado — si esto sigue devolviendo
+        // "not_found", es porque el nombre no está guardado en la libreta
+        // de contactos, así que el mensaje se lo dice así en vez de sugerir
+        // que el problema es la falta de un chat previo.
+        return { status: "error", message: `No tengo guardado un contacto como "${contactNameArg}". ¿Lo tienes guardado con otro nombre?` };
       }
       chatId = found.chatId;
       displayName = found.contactName;

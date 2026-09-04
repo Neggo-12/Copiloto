@@ -7,20 +7,22 @@ import { ModoManejoScreen } from "./ModoManejoScreen";
 import { EmergenciaScreen } from "./EmergenciaScreen";
 import { NotificacionesScreen } from "./NotificacionesScreen";
 import { AsistenteVozScreen } from "./AsistenteVozScreen";
-import { AdminAmbulanciasScreen } from "./AdminAmbulanciasScreen";
 
-export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones" | "voz" | "admin";
+export type CopilotoSubTab = "modo" | "emergencia" | "notificaciones" | "voz";
 
+// Bug real reportado por el fundador (2026-09-03, ver docs/decisions/README.md
+// decisión (35)): esta sub-nav mostraba una pestaña "Admin" en TODAS las
+// cuentas (cualquier usuario de prueba la veía y, al tocarla, el backend le
+// respondía "Sin acceso" — confuso e indeseado, ese panel es exclusivo del
+// fundador). El panel de administrador ahora vive completamente aparte, en
+// su propio dashboard con login propio (`/admin`, ver
+// `src/components/admin/AdminDashboard.tsx`) — ya no es una pestaña más
+// dentro de la app normal.
 const SUB_TABS: { key: CopilotoSubTab; label: string }[] = [
   { key: "modo", label: "Modo" },
   { key: "emergencia", label: "Emergencia" },
   { key: "notificaciones", label: "Alertas" },
   { key: "voz", label: "Voz" },
-  // Siempre visible en la sub-nav a propósito (mismo criterio que el resto
-  // de la app: "nunca decidido por el cliente") — el backend real
-  // (`AdminGuard`) es quien rechaza a cualquiera que no sea el
-  // administrador, la pantalla solo refleja ese 403 real.
-  { key: "admin", label: "Admin" },
 ];
 
 /**
@@ -79,7 +81,5 @@ export function CopilotoTab({ tabBar }: { tabBar: ReactNode }) {
       return <NotificacionesScreen realtime={realtime} tabBar={tabBar} subNav={subNav} />;
     case "voz":
       return <AsistenteVozScreen controller={voiceSession} tabBar={tabBar} subNav={subNav} />;
-    case "admin":
-      return <AdminAmbulanciasScreen tabBar={tabBar} subNav={subNav} />;
   }
 }

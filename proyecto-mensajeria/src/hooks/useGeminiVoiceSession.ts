@@ -25,6 +25,36 @@ export interface GeminiVoiceController {
 const CAPTURE_BUFFER_SIZE = 4096;
 
 /**
+ * Optimización de costo real (ver docs/decisions/README.md, 2026-09-03):
+ * Gemini Live factura el audio de ENTRADA de forma CONTINUA — silencio
+ * incluido, al mismo precio que hablar de verdad (confirmado con el foro
+ * oficial de Google AI Developers: "periods of silence are indeed billed at
+ * the same rate as periods when a user is actively speaking", 32 tokens de
+ * audio/segundo fijos). Antes, `onaudioprocess` mandaba un chunk cada ~85ms
+ * SIEMPRE mientras la sesión estuviera abierta — dejar "Modo conducción" con
+ * el asistente activo durante un viaje entero facturaba el viaje COMPLETO
+ * como si el usuario hubiera hablado todo el tiempo, no solo lo que
+ * realmente dijo.
+ *
+ * Umbral simple de energía (RMS) sobre cada buffer: mientras el RMS se
+ * mantenga por debajo de `SPEECH_RMS_THRESHOLD` por más de
+ * `SILENCE_PAUSE_MS` seguidos, se DEJA DE EMITIR el chunk (no se manda nada
+ * a Gemini, no se factura) — apenas el RMS vuelve a superar el umbral, se
+ * retoma de inmediato (se evalúa en cada buffer, ~85ms). A propósito NO se
+ * cierra la sesión/el socket durante el silencio (eso reabriría la clase de
+ * bug real ya documentada abajo sobre reconexión y sesiones duplicadas) —
+ * solo se pausa el envío, la sesión de Gemini sigue viva y lista.
+ *
+ * VALORES SIN CALIBRAR CON MANEJO REAL TODAVÍA: el ruido de viento/motor en
+ * moto puede exigir un umbral distinto al de un carro o una prueba de
+ * escritorio — mismo criterio de honestidad que el resto de este archivo
+ * (ver comentario de clase de `useGeminiVoiceSession`), queda pendiente que
+ * el fundador lo pruebe manejando y ajustemos si hace falta.
+ */
+const SPEECH_RMS_THRESHOLD = 0.02;
+const SILENCE_PAUSE_MS = 8000;
+
+/**
  * Segundo slice de ADR-0034: conecta el micrófono real del navegador a
  * `AssistantVoiceGateway` (`/assistant-voice`), con audio real en ambas
  * direcciones. Mismo patrón de auth/conexión que `useCopilotoRealtime`
@@ -72,6 +102,13 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
   // detener lo que ya estaba sonando cuando el usuario interrumpía — la
   // respuesta vieja seguía hablando encima de la nueva.
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  // Última vez (performance.now()) que el RMS del micrófono superó
+  // `SPEECH_RMS_THRESHOLD` — ver comentario de esa constante arriba. Arranca
+  // en 0 a propósito: en el primer buffer de una sesión nueva, si el
+  // usuario todavía no ha dicho nada, `now - 0` ya es mayor a
+  // `SILENCE_PAUSE_MS`, así que no se manda nada hasta la primera vez que sí
+  // se detecte voz real — correcto, no hace falta inicializarlo a mano.
+  const lastSpeechAtRef = useRef(0);
 
   const cleanup = useCallback(() => {
     processorRef.current?.disconnect();
@@ -84,6 +121,7 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
     playbackCtxRef.current = null;
     nextPlaybackTimeRef.current = 0;
     activeSourcesRef.current = [];
+    lastSpeechAtRef.current = 0;
     socketRef.current?.disconnect();
     socketRef.current = null;
   }, []);
@@ -278,6 +316,25 @@ export function useGeminiVoiceSession(): GeminiVoiceController {
           processor.onaudioprocess = (event) => {
             if (!socketRef.current?.connected) return;
             const input = event.inputBuffer.getChannelData(0);
+
+            // Gate de silencio real — ver `SPEECH_RMS_THRESHOLD`/
+            // `SILENCE_PAUSE_MS` arriba. RMS simple sobre el buffer crudo
+            // (antes de downsamplear, mismo dato real que ya se tiene acá).
+            let sumSquares = 0;
+            for (let i = 0; i < input.length; i++) {
+              const sample = input[i] ?? 0;
+              sumSquares += sample * sample;
+            }
+            const rms = Math.sqrt(sumSquares / input.length);
+            const now = performance.now();
+            if (rms > SPEECH_RMS_THRESHOLD) {
+              lastSpeechAtRef.current = now;
+            } else if (now - lastSpeechAtRef.current > SILENCE_PAUSE_MS) {
+              // Silencio sostenido — no se manda este chunk (no se factura).
+              // Apenas el próximo buffer supere el umbral, se retoma solo.
+              return;
+            }
+
             const downsampled = downsampleTo(
               input,
               captureCtx.sampleRate,

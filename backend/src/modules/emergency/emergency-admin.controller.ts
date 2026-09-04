@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import { AdminGuard } from "../../common/guards/admin.guard";
 import { SupabaseAuthGuard, type AuthenticatedRequest } from "../../common/guards/supabase-auth.guard";
+import { EmergencyIncidentsService } from "./emergency-incidents.service";
 import { EmergencyVehiclesService } from "./emergency-vehicles.service";
 
 interface AssignAmbulanceBody {
@@ -28,11 +29,26 @@ interface SetActiveBody {
 @Controller("emergency/admin")
 @UseGuards(SupabaseAuthGuard, AdminGuard)
 export class EmergencyAdminController {
-  constructor(private readonly vehicles: EmergencyVehiclesService) {}
+  constructor(
+    private readonly vehicles: EmergencyVehiclesService,
+    private readonly incidents: EmergencyIncidentsService,
+  ) {}
 
   @Get("vehicles")
   async list() {
     return this.vehicles.listAll();
+  }
+
+  /**
+   * Incidentes reales de "Copiloto, llama a la policía" (ver
+   * `CallPoliceTool`/`EmergencyIncidentsService`, docs/decisions/README.md
+   * decisión (33)) — cada fila ya trae los datos reales de la persona
+   * (nombre/teléfono/correo, ubicación) tomados al momento de crear el
+   * incidente, sin necesitar unir contra `profiles` desde acá.
+   */
+  @Get("incidents")
+  async listIncidents() {
+    return this.incidents.listAll();
   }
 
   /**

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_ADMIN_CLIENT } from "../../common/supabase/supabase.module";
@@ -60,6 +61,32 @@ export class MessagingService {
     return data !== null;
   }
 
+  /**
+   * Nombre a mostrar de cada `otherId` desde el punto de vista de `viewerId`
+   * — prioriza `contacts.display_name` (el nombre que EL VIEWER le puso en
+   * SU libreta a esa persona) sobre `profiles.display_name` (el nombre con
+   * el que esa persona se registró en la plataforma). Bug real corregido
+   * 2026-09-03, ver comentario largo en `resolveChatByContactName`: antes
+   * `listChats`/`getRecentTextMessages` solo usaban `profiles.display_name`,
+   * mientras que `resolveChatByContactName` (la búsqueda por voz) siempre
+   * usó `contacts.display_name` — el usuario veía un nombre distinto al que
+   * el asistente encontraba. Mismo fix aplicado en paralelo en
+   * `proyecto-mensajeria/src/lib/actions/chats.ts` (`fetchChatsAndMessages`,
+   * `fetchSingleChat`) para que la UI y la voz queden consistentes.
+   */
+  private async resolveDisplayNames(viewerId: string, otherIds: string[]): Promise<Map<string, string>> {
+    if (otherIds.length === 0) return new Map();
+    const [{ data: profileRows }, { data: contactRows }] = await Promise.all([
+      this.supabase.from("profiles").select("id, display_name").in("id", otherIds),
+      this.supabase.from("contacts").select("contact_profile_id, display_name").eq("user_id", viewerId).in("contact_profile_id", otherIds),
+    ]);
+    const nameById = new Map((profileRows ?? []).map((row) => [row.id as string, row.display_name as string]));
+    for (const row of (contactRows ?? []) as { contact_profile_id: string; display_name: string }[]) {
+      nameById.set(row.contact_profile_id, row.display_name);
+    }
+    return nameById;
+  }
+
   async listChats(userId: string): Promise<ChatSummary[]> {
     const { data: myRows } = await this.supabase.from("chat_participants").select("chat_id").eq("user_id", userId);
     const chatIds = (myRows ?? []).map((row) => row.chat_id as string);
@@ -75,11 +102,7 @@ export class MessagingService {
       if (row.user_id !== userId) otherIdByChat.set(row.chat_id, row.user_id);
     }
     const otherIds = Array.from(new Set(otherIdByChat.values()));
-    const { data: profileRows } =
-      otherIds.length > 0
-        ? await this.supabase.from("profiles").select("id, display_name").in("id", otherIds)
-        : { data: [] as { id: string; display_name: string }[] };
-    const nameById = new Map((profileRows ?? []).map((row) => [row.id as string, row.display_name as string]));
+    const nameById = await this.resolveDisplayNames(userId, otherIds);
 
     return ((chatRows ?? []) as { id: string; type: "individual" | "group"; name: string | null }[]).map((row) => ({
       chatId: row.id,
@@ -110,6 +133,20 @@ export class MessagingService {
    *    revés. Fix: match por contención en AMBOS sentidos, y además por
    *    palabra suelta en común (así "Jose" ⟷ "Jose Luis" hacen match sin
    *    importar cuál de los dos es más largo).
+   *
+   * Bug real corregido 2026-09-03: un usuario guardó un contacto nuevo
+   * ("mi amor") y, SIN haber abierto un chat con esa persona todavía, le
+   * pidió al asistente de voz que le mandara un mensaje — el asistente
+   * respondió que no encontró el chat, aunque el contacto sí existía en su
+   * libreta. Causa real: este método solo buscaba un chat YA EXISTENTE
+   * (`sharedRows`) y devolvía `not_found` si no había uno, en vez de crear
+   * uno — a diferencia de la UI (`proyecto-mensajeria/.../chats.ts`,
+   * `findOrCreateIndividualChat`), que sí crea el chat 1 a 1 la primera vez
+   * que hablas con un contacto conocido. Fix: mismo patrón que
+   * `findOrCreateIndividualChat` (insertar `chats` y luego
+   * `chat_participants` SIN encadenar `.select()`, por la misma razón de
+   * RLS documentada allá — la política `is_chat_participant` todavía no ve
+   * la fila del participante recién insertada dentro del mismo INSERT).
    */
   async resolveChatByContactName(userId: string, contactNameQuery: string): Promise<{ chatId: string; contactName: string } | ChatResolutionError> {
     const { data: contactRows } = await this.supabase
@@ -128,17 +165,35 @@ export class MessagingService {
 
     const { data: myParticipantRows } = await this.supabase.from("chat_participants").select("chat_id").eq("user_id", userId);
     const myChatIds = (myParticipantRows ?? []).map((row) => row.chat_id as string);
-    if (myChatIds.length === 0) return { error: "not_found" };
 
-    const { data: sharedRows } = await this.supabase
-      .from("chat_participants")
-      .select("chat_id")
-      .eq("user_id", other.contact_profile_id)
-      .in("chat_id", myChatIds);
+    if (myChatIds.length > 0) {
+      const { data: sharedRows } = await this.supabase
+        .from("chat_participants")
+        .select("chat_id")
+        .eq("user_id", other.contact_profile_id)
+        .in("chat_id", myChatIds);
+      const existingChatId = ((sharedRows ?? [])[0] as { chat_id: string } | undefined)?.chat_id;
+      if (existingChatId) return { chatId: existingChatId, contactName: other.display_name };
+    }
 
-    const chatId = ((sharedRows ?? [])[0] as { chat_id: string } | undefined)?.chat_id;
-    if (!chatId) return { error: "not_found" };
-    return { chatId, contactName: other.display_name };
+    const createdChatId = await this.createIndividualChat(userId, other.contact_profile_id);
+    if (!createdChatId) return { error: "not_found" };
+    return { chatId: createdChatId, contactName: other.display_name };
+  }
+
+  /** Ver comentario de `resolveChatByContactName` (bug real 2026-09-03) — mismo patrón que `findOrCreateIndividualChat` del frontend. */
+  private async createIndividualChat(userId: string, participantId: string): Promise<string | null> {
+    const newChatId = randomUUID();
+    const { error: chatError } = await this.supabase.from("chats").insert({ id: newChatId, type: "individual", created_by: userId });
+    if (chatError) return null;
+
+    const { error: participantsError } = await this.supabase.from("chat_participants").insert([
+      { chat_id: newChatId, user_id: userId, role: "admin" },
+      { chat_id: newChatId, user_id: participantId, role: "member" },
+    ]);
+    if (participantsError) return null;
+
+    return newChatId;
   }
 
   /** null = el usuario no pertenece a ese chat (autorización denegada), no "no hay mensajes". */
@@ -156,12 +211,8 @@ export class MessagingService {
       .limit(limit);
 
     const messages = (rows ?? []) as { id: string; sender_id: string; content: string | null; created_at: string }[];
-    const senderIds = Array.from(new Set(messages.map((row) => row.sender_id)));
-    const { data: profileRows } =
-      senderIds.length > 0
-        ? await this.supabase.from("profiles").select("id, display_name").in("id", senderIds)
-        : { data: [] as { id: string; display_name: string }[] };
-    const nameById = new Map((profileRows ?? []).map((row) => [row.id as string, row.display_name as string]));
+    const senderIds = Array.from(new Set(messages.map((row) => row.sender_id).filter((id) => id !== userId)));
+    const nameById = await this.resolveDisplayNames(userId, senderIds);
 
     return messages
       .map((row) => ({

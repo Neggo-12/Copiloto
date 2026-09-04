@@ -393,12 +393,50 @@ export async function fetchChatsAndMessages(
     participantsByChat.set(row.chat_id, list);
   }
 
+  // Bug real reportado 2026-09-03: un usuario guardó un contacto como "mi
+  // amor" pero el chat le seguía mostrando el nombre con el que esa persona
+  // se registró en la plataforma, no el que él le puso en su libreta —
+  // confirmado que así era en TODA la app (lista de chats, hilo, ajustes),
+  // no solo aquí. `contactNameByOtherId` trae, en un solo query, el nombre
+  // que YO (userId) le puse a cada uno de mis contactos reales — si existe,
+  // gana sobre `profiles.display_name`. Mismo criterio que ya usaba
+  // `resolveChatByContactName` en el backend para BUSCAR por voz; ahora
+  // también se usa para MOSTRAR, así que las dos fuentes quedan consistentes.
+  const otherUserIds = Array.from(
+    new Set(
+      ((chatRows ?? []) as ChatRow[])
+        .map(
+          (row) =>
+            (participantsByChat.get(row.id) ?? []).find((item) => item.user_id !== userId)?.user_id,
+        )
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const { data: myContactRows } =
+    otherUserIds.length > 0
+      ? await supabase
+          .from("contacts")
+          .select("contact_profile_id, display_name")
+          .eq("user_id", userId)
+          .in("contact_profile_id", otherUserIds)
+      : { data: [] as { contact_profile_id: string; display_name: string }[] };
+  const contactNameByOtherId = new Map(
+    ((myContactRows ?? []) as { contact_profile_id: string; display_name: string }[]).map((row) => [
+      row.contact_profile_id,
+      row.display_name,
+    ]),
+  );
+
   const chats: Chat[] = ((chatRows ?? []) as ChatRow[]).map((row) => {
     const participants = participantsByChat.get(row.id) ?? [];
     const other = participants.find((item) => item.user_id !== userId);
     const otherProfile = other ? profileById.get(other.user_id) : undefined;
     const title =
-      row.type === "group" ? (row.name ?? "Grupo") : (otherProfile?.display_name ?? "Usuario");
+      row.type === "group"
+        ? (row.name ?? "Grupo")
+        : ((other && contactNameByOtherId.get(other.user_id)) ??
+          otherProfile?.display_name ??
+          "Usuario");
     const avatarUrl = row.type === "group" ? row.photo_url : (otherProfile?.avatar_url ?? null);
     return mapChatRow(row, participants, userId, title, avatarUrl);
   });
@@ -444,12 +482,23 @@ export async function fetchSingleChat(chatId: ChatId, userId: UserId): Promise<C
   let title = typedChatRow.name ?? "Grupo";
   let avatarUrl = typedChatRow.photo_url;
   if (typedChatRow.type === "individual" && other) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("display_name, avatar_url")
-      .eq("id", other.user_id)
-      .maybeSingle();
-    title = profile?.display_name ?? "Usuario";
+    const [{ data: profile }, { data: myContactRow }] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("display_name, avatar_url")
+        .eq("id", other.user_id)
+        .maybeSingle(),
+      // Ver comentario en `fetchChatsAndMessages` (bug real 2026-09-03): mi
+      // propio nombre de libreta para esta persona, si lo tengo, gana sobre
+      // el nombre de plataforma.
+      supabase
+        .from("contacts")
+        .select("display_name")
+        .eq("user_id", userId)
+        .eq("contact_profile_id", other.user_id)
+        .maybeSingle(),
+    ]);
+    title = myContactRow?.display_name ?? profile?.display_name ?? "Usuario";
     avatarUrl = profile?.avatar_url ?? null;
   }
   return mapChatRow(typedChatRow, participants, userId, title, avatarUrl);

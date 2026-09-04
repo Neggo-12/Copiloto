@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantTool, ToolExecutionContext, ToolOutcome } from "./assistant.types";
 import { ActivateEmergencyCorridorTool } from "./tools/activate-emergency-corridor.tool";
 import { CalculateRouteTool } from "./tools/calculate-route.tool";
+import { CallPoliceTool } from "./tools/call-police.tool";
 import { CreateLocationReminderTool } from "./tools/create-location-reminder.tool";
 import { CreateNoteReminderTool } from "./tools/create-note-reminder.tool";
 import { GetDrivingModeTool } from "./tools/get-driving-mode.tool";
@@ -39,6 +40,7 @@ export class AssistantToolsService {
     calculateRoute: CalculateRouteTool,
     openNavigation: OpenNavigationTool,
     activateEmergencyCorridor: ActivateEmergencyCorridorTool,
+    callPolice: CallPoliceTool,
     setDrivingMode: SetDrivingModeTool,
     getDrivingMode: GetDrivingModeTool,
     listVehicles: ListVehiclesTool,
@@ -52,6 +54,7 @@ export class AssistantToolsService {
       calculateRoute,
       openNavigation,
       activateEmergencyCorridor,
+      callPolice,
       setDrivingMode,
       getDrivingMode,
       listVehicles,

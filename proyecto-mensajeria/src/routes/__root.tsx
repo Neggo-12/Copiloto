@@ -87,6 +87,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "author", content: "Vozz" },
       { name: "theme-color", content: "#17151F" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
+      // "Vozz" ya usaba `apple-mobile-web-app-capable`, pero le faltaba el
+      // título específico que iOS muestra bajo el ícono al usar "Agregar a
+      // inicio" (sin esto, cae al `<title>` completo de la pestaña) y el
+      // modo de la barra de estado — agregado junto con `manifest.json`
+      // porque las dos cosas habilitan lo mismo: que la app se pueda
+      // "instalar" real desde Safari en iPhone (ver decisión de este día en
+      // docs/decisions/README.md sobre TWA vs. PWA instalable).
+      { name: "apple-mobile-web-app-title", content: "Vozz" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -102,6 +111,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: appCss,
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      // `manifest.json` es lo que le dice al navegador "esto se puede
+      // instalar como app" — habilita "Agregar a inicio" real en iOS Safari
+      // (ícono propio, pantalla completa sin la barra de Safari) y es
+      // también el requisito real para empaquetar un TWA de Android más
+      // adelante (Google exige un manifest válido con íconos 192/512 para
+      // considerar la web app "instalable"). `apple-touch-icon` es el ícono
+      // que iOS usa específicamente para "Agregar a inicio" — no lo toma
+      // del `manifest.json` de forma confiable, hay que declararlo aparte.
+      { rel: "manifest", href: "/manifest.json" },
+      { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" },
     ],
   }),
   shellComponent: RootShell,
