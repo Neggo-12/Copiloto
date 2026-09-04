@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ExecutionContext, HttpException, Injectable, Logger } from "@nestjs/common";
 import { ThrottlerGuard } from "@nestjs/throttler";
 
 /**
@@ -22,9 +22,50 @@ import { ThrottlerGuard } from "@nestjs/throttler";
  *    comparten IP pública por el NAT del operador) — penalizaría a usuarios
  *    inocentes por el tráfico de otro. Por IP solo se usa como respaldo
  *    cuando no hay token Bearer (ej. `/health`).
+ *
+ * "Fail open" real agregado 2026-09-04 (mismo día que el fix de
+ * `corridor-expiry-sweep.processor.ts` — otro síntoma real del mismo
+ * problema de fondo, la cuota de Upstash agotada, ver decisión (37)): este
+ * guard es GLOBAL (`APP_GUARD`) y su storage es Redis
+ * (`ThrottlerStorageRedisService`, `RateLimitModule`) — con la cuota
+ * agotada, CADA petición a CUALQUIER endpoint (incluyendo login/lectura,
+ * nada que ver con el rate limit en sí) tiraba una excepción sin capturar
+ * dentro de `super.canActivate()`, que NestJS convertía en un 500 genérico
+ * ("Internal server error") — confirmado real por el fundador probando el
+ * panel de admin nuevo: el 500 no tenía nada que ver con `AdminGuard`, moría
+ * ANTES de llegar ahí. Con `try/catch` alrededor de `super.canActivate()`:
+ * si Redis falla, se deja pasar la petición (fail open) en vez de bloquear
+ * el 100% del tráfico real por un límite que ni siquiera se puede consultar.
+ * Trade-off real y aceptado a propósito: mientras Redis siga caído, los
+ * límites más estrictos de endpoints costosos (proxy de Google Maps,
+ * `SimulationController`, ver `RateLimitModule`) tampoco se aplican — un
+ * riesgo real pero muchísimo menor que tener el 100% de la API caída.
+ *
+ * Importante: el "fail open" es SOLO para fallas de infraestructura (Redis
+ * caído/sin cuota) — cuando alguien SÍ se pasó del límite real, `super.canActivate()`
+ * lanza `ThrottlerException` (un `HttpException` real, 429, el caso normal y
+ * esperado) y ese caso se re-lanza tal cual, nunca se convierte en "dejar
+ * pasar". Distinguir por `instanceof HttpException` evita que este fix
+ * termine desactivando el rate limit por completo en el caso normal.
  */
 @Injectable()
 export class UserAwareThrottlerGuard extends ThrottlerGuard {
+  private readonly failOpenLogger = new Logger(UserAwareThrottlerGuard.name);
+
+  override async canActivate(context: ExecutionContext): Promise<boolean> {
+    try {
+      return await super.canActivate(context);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        // Caso normal: de verdad se pasó del límite (429) u otro HttpException real del guard — no es una falla de Redis, no se debe "dejar pasar".
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : "Error desconocido";
+      this.failOpenLogger.warn(`Rate limit no disponible (Redis) — dejando pasar la petición sin límite. Causa: ${message}`);
+      return true;
+    }
+  }
+
   protected override async getTracker(req: Record<string, any>): Promise<string> {
     const headers = (req as { headers?: Record<string, string | string[] | undefined> }).headers;
     const rawHeader = headers?.["authorization"];
