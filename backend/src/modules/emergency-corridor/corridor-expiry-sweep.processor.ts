@@ -48,11 +48,41 @@ export class CorridorExpirySweepProcessor extends WorkerHost implements OnModule
     super();
   }
 
+  /**
+   * CAUSA RAÍZ real de una caída total confirmada el 2026-09-04 (logs reales
+   * de Railway): con la cuota de Upstash agotada (mismo hallazgo de la
+   * decisión (28)), este `upsertJobScheduler` lanzaba una excepción real
+   * durante el arranque — y como `onModuleInit` de Nest se espera (`await`)
+   * dentro de `NestFactory.create()` en `main.ts`, esa excepción tumbaba TODO
+   * el proceso (no solo esta cola): `bootstrap()` se llama como
+   * `void bootstrap()` sin `.catch()`, así que el rechazo quedaba sin
+   * manejar y Bun mataba el proceso — Railway lo reiniciaba de inmediato,
+   * volvía a fallar igual, y quedaba en loop de reinicio infinito (confirmado
+   * en los logs: "Starting Nest application..." cada 1-3s, sin nunca llegar
+   * a "escuchando en :PORT"). Con esto, NINGÚN endpoint del backend
+   * respondía — no solo los que tocan Redis.
+   *
+   * Try/catch real a propósito: este barrido es mantenimiento de baja
+   * precisión (ver comentario de `SWEEP_INTERVAL_MS` arriba — "no necesita
+   * ser fino"), así que perderlo temporalmente por un problema de
+   * infraestructura de Redis es aceptable; que TODO el backend deje de
+   * arrancar por eso no lo es. Esto NO arregla la cuota de Upstash en sí
+   * (eso sigue siendo una acción real de cuenta/plan del fundador, ver
+   * decisión (28)) — solo evita que un problema de Redis se propague a una
+   * caída total del backend.
+   */
   async onModuleInit(): Promise<void> {
-    await this.queue.upsertJobScheduler(SWEEP_JOB_ID, { every: SWEEP_INTERVAL_MS }, {
-      name: EMERGENCY_ALERTS_JOB_NAMES.CORRIDOR_EXPIRY_SWEEP,
-      data: {},
-    });
+    try {
+      await this.queue.upsertJobScheduler(SWEEP_JOB_ID, { every: SWEEP_INTERVAL_MS }, {
+        name: EMERGENCY_ALERTS_JOB_NAMES.CORRIDOR_EXPIRY_SWEEP,
+        data: {},
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Error desconocido";
+      this.logger.warn(
+        `No se pudo programar el barrido de expiración de corredores (Redis) — el resto del backend sigue arrancando normalmente. Causa: ${message}`,
+      );
+    }
   }
 
   async process(
