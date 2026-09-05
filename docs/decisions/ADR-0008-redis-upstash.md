@@ -1,4 +1,4 @@
-# ADR-0008 — Redis + BullMQ como infraestructura real (Upstash)
+# ADR-0008 — Redis + BullMQ como infraestructura real (Upstash → Railway desde 2026-09-05)
 
 **Fecha:** 2026-08-19
 **Estado:** Aceptado — decisión explícita y definitiva del fundador, no debe volver a quedar pendiente.
@@ -79,6 +79,52 @@ cronograma queda cerrada por completo, sin nada pendiente ni simulado.
   producción (hoy solo corrió local y en CI) — un Worker de BullMQ necesita un
   proceso vivo constante, no solo un request-response server. Anotado como el
   siguiente vacío real a resolver, no bloqueante para cerrar esta fase.
+
+## Actualización 2026-09-04 — migración decidida de Upstash a Railway
+
+La cuota mensual de Upstash (500.000 comandos, plan Fixed) se agotó en producción y
+causó incidentes reales encadenados (ver decisiones (28), (37), (38) en
+`docs/decisions/README.md`): caída total del backend al arrancar, luego fallo de
+TODO endpoint, mitigados con fail-open/try-catch pero sin resolver la causa real. El
+fundador decidió (decisión (39)) mover Redis a un servicio dentro del mismo proyecto
+de Railway en vez de subir de plan de Upstash — el desacople de proveedor descrito
+arriba (`REDIS_URL` como único punto de contacto) sigue siendo válido y es lo que hace
+esta migración un cambio de variable de entorno, no de código. **Pendiente real de
+ejecución por el fundador** (acción de dashboard de Railway, fuera del alcance de este
+asistente) — este ADR y el comentario de `redis.module.ts` se actualizan para reflejar
+Railway como proveedor solo cuando la migración esté hecha y verificada de punta a
+punta contra la instancia real, mismo estándar de verificación que el resto de este
+documento.
+
+## Actualización 2026-09-05 — migración ejecutada, con un bug real encontrado y corregido en el camino
+
+El fundador provisionó el servicio Redis dentro del proyecto de Railway y apuntó
+`REDIS_URL` del backend a él. Primer intento falló: el deploy entró en el mismo loop
+de reinicio infinito ya documentado (ver decisión (37)), esta vez con
+`TypeError: Invalid URL` — confirmado con evidencia real (dos exports de logs de
+Railway descargados por el fundador, `logs.1788570103751.json` y
+`logs.1788570622039.json`). Causa raíz real, no adivinada: al editar la variable en el
+dashboard de Railway, la referencia `${{Redis.REDIS_URL}}` quedó concatenada AL FINAL
+del valor viejo de Upstash en vez de reemplazarlo — el segundo log muestra literalmente
+las dos connection strings pegadas sin separador
+(`rediss://...@ace-perch-148578.upstash.io:6379redis://...@redis.railway.internal:6379`),
+por eso `ioredis`/`new URL()` no podía parsearla. Corregido borrando el campo por
+completo antes de insertar la referencia — el fundador confirmó el servicio "online" en
+el dashboard después de este segundo intento. `RedisModule`/`ADR-0008` no necesitaron
+ningún cambio de código, tal como predecía el desacople de proveedor original de este
+ADR. Pendiente honesto, sin marcar como 100% verificado: falta repetir la prueba de
+humo real de este ADR (`POST /system/queue/ping` → `GET /system/queue/ping/:jobId`)
+contra la instancia nueva para tener la misma confirmación de punta a punta que se hizo
+en 2026-08-19 con Upstash — "online" en el dashboard confirma que el proceso arrancó,
+no que Redis+BullMQ funcionan de punta a punta.
+
+**Verificado real 2026-09-05:** el fundador corrió la prueba de humo contra la
+instancia real de producción (Railway): `POST /system/queue/ping` →
+`{"jobId":"1"}`, `GET /system/queue/ping/1` →
+`{"state":"completed","result":{"pong":true,"respondedAt":"2026-09-05T01:21:42.588Z"}}`.
+Migración cerrada por completo, sin nada pendiente ni simulado — mismo estándar de
+verificación que el resto de este ADR. Detalle completo en la decisión (41),
+`docs/decisions/README.md`.
 
 ## Referencias
 

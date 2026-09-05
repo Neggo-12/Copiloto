@@ -85,6 +85,21 @@ export function useEmergencyAdmin() {
     void refresh();
   }, [refresh]);
 
+  /**
+   * Auto-refresco cada 15s mientras la pestaña de admin esté abierta — antes
+   * el panel solo cargaba una vez al entrar, así que un incidente real nuevo
+   * (ej. un SOS de policía) no aparecía hasta recargar la página a mano. No
+   * es tiempo real (no hay socket propio del admin todavía), pero es
+   * suficiente para no depender de que el fundador recuerde recargar en
+   * medio de una emergencia real.
+   */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void refresh();
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
   async function assign(
     form: AssignAmbulanceForm,
   ): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -114,5 +129,13 @@ export function useEmergencyAdmin() {
     await refresh();
   }
 
-  return { access, vehicles, incidents, error, assign, setActive, refresh };
+  async function setIncidentStatus(
+    id: string,
+    status: Exclude<AdminEmergencyIncidentRow["status"], "creado">,
+  ): Promise<void> {
+    await adminBackend.patch(`/emergency/admin/incidents/${id}`, { status });
+    await refresh();
+  }
+
+  return { access, vehicles, incidents, error, assign, setActive, setIncidentStatus, refresh };
 }

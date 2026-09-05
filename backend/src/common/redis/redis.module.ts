@@ -7,10 +7,13 @@ export const REDIS_CONNECTION = Symbol("REDIS_CONNECTION");
 
 /**
  * Conexión única de Redis compartida por toda la app. Este es el ÚNICO lugar
- * que conoce detalles del proveedor (hoy: Upstash, vía REDIS_URL con esquema
- * `rediss://` que activa TLS automáticamente en ioredis). Migrar de Upstash a
- * Redis Cloud/self-hosted en el futuro es cambiar esta variable de entorno,
- * nada de código — mismo principio que SupabaseModule con Supabase.
+ * que conoce detalles del proveedor (desde 2026-09-05: Redis provisionado
+ * dentro del mismo proyecto de Railway que el backend — antes Upstash, migrado
+ * por la cuota de comandos agotada, ver ADR-0008 y decisión (41) en
+ * `docs/decisions/README.md`). `REDIS_URL` sigue siendo la única variable que
+ * conoce al proveedor — cambiarlo de nuevo en el futuro es cambiar esa
+ * variable de entorno, nada de código — mismo principio que SupabaseModule
+ * con Supabase.
  *
  * `maxRetriesPerRequest: null` es obligatorio para BullMQ (si no, lanza una
  * excepción al pasarle la conexión a un Worker) — confirmado en la

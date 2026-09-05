@@ -20,6 +20,21 @@ import type { CorridorCandidate, CorridorCloseReason } from "./emergency-corrido
  */
 export const BASE_ALERT_MESSAGE = "Ambulancia aproximándose. Facilite el paso cuando sea seguro hacerlo.";
 
+/**
+ * Texto humano para `corridor:closed`, aprobado por el fundador (2026-09-04)
+ * — mismo criterio que `BASE_ALERT_MESSAGE`: una sola frase exacta por
+ * motivo, no algo que el cliente deba inventar. `expired` usa el mismo texto
+ * que `completed`: para quien lo recibe no hay diferencia real entre "la
+ * ambulancia llegó" y "el sistema dejó de rastrearla" — es un detalle
+ * interno de implementación, no algo que valga la pena distinguir en el
+ * mensaje.
+ */
+const CLOSE_MESSAGES: Record<CorridorCloseReason, string> = {
+  completed: "La ambulancia ya pasó. Gracias por facilitar el paso.",
+  cancelled: "El traslado de emergencia terminó.",
+  expired: "La ambulancia ya pasó. Gracias por facilitar el paso.",
+};
+
 export type AlertChannel = "visual_audio" | "voice_priority" | "default";
 
 /**
@@ -157,7 +172,7 @@ export class AlertPolicyService {
     if (notified.length > 0) {
       await this.redis.del(setKey);
       for (const userId of notified) {
-        this.broadcast.notify(userId, "corridor:closed", { ambulanceDriverId, reason });
+        this.broadcast.notify(userId, "corridor:closed", { message: CLOSE_MESSAGES[reason], ambulanceDriverId, reason });
       }
       this.logger.log(`Ambulancia ${ambulanceDriverId}: corredor cerrado (${reason}), ${notified.length} candidato(s) notificado(s)`);
     }

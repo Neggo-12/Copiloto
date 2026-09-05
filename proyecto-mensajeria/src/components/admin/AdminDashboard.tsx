@@ -54,7 +54,8 @@ export function AdminDashboard() {
 }
 
 function AdminDashboardContent() {
-  const { access, vehicles, incidents, error, assign, setActive } = useEmergencyAdmin();
+  const { access, vehicles, incidents, error, assign, setActive, setIncidentStatus } =
+    useEmergencyAdmin();
 
   return (
     <div className="min-h-[100dvh] bg-background text-foreground">
@@ -83,7 +84,7 @@ function AdminDashboardContent() {
 
         {access === "granted" && (
           <>
-            <AdminIncidentsPanel incidents={incidents} />
+            <AdminIncidentsPanel incidents={incidents} setStatus={setIncidentStatus} />
             <AdminVehiclesPanel vehicles={vehicles} assign={assign} setActive={setActive} />
           </>
         )}

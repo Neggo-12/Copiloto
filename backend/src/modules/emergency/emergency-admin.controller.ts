@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import { AdminGuard } from "../../common/guards/admin.guard";
 import { SupabaseAuthGuard, type AuthenticatedRequest } from "../../common/guards/supabase-auth.guard";
-import { EmergencyIncidentsService } from "./emergency-incidents.service";
+import { EmergencyIncidentsService, type IncidentStatus } from "./emergency-incidents.service";
 import { EmergencyVehiclesService } from "./emergency-vehicles.service";
 
 interface AssignAmbulanceBody {
@@ -14,6 +14,13 @@ interface AssignAmbulanceBody {
 interface SetActiveBody {
   active: boolean;
 }
+
+interface SetIncidentStatusBody {
+  status?: IncidentStatus;
+}
+
+/** Estados a los que el administrador puede mover un incidente a mano — "creado" queda afuera a propósito (ver `EmergencyIncidentsService.setStatus`). */
+const ADMIN_SETTABLE_INCIDENT_STATUSES = ["recibido", "en_atencion", "cancelado", "cerrado"] as const;
 
 /**
  * Panel de administrador real (2026-09-01, a pedido explícito del
@@ -76,5 +83,25 @@ export class EmergencyAdminController {
   async setActive(@Param("driverId") driverId: string, @Body() body: SetActiveBody) {
     await this.vehicles.setActive(driverId, body.active === true);
     return { updated: true };
+  }
+
+  /**
+   * Avanza el estado de un incidente real ("recibido"/"en atención"/
+   * "cancelado"/"cerrado") — antes la tabla de incidentes era de solo
+   * lectura, sin ninguna acción real posible desde el panel. 400 si mandan
+   * un valor fuera de `ADMIN_SETTABLE_INCIDENT_STATUSES` (mismo criterio que
+   * `close()` en `EmergencyCorridorController`: rechazar un valor no
+   * reconocido en vez de asumir algo en silencio).
+   */
+  @Patch("incidents/:id")
+  async setIncidentStatus(@Param("id") id: string, @Body() body: SetIncidentStatusBody) {
+    const status = body?.status;
+    if (!status || !(ADMIN_SETTABLE_INCIDENT_STATUSES as readonly string[]).includes(status)) {
+      throw new BadRequestException(
+        `status inválido: "${String(status)}". Válidos: ${ADMIN_SETTABLE_INCIDENT_STATUSES.join(", ")}.`,
+      );
+    }
+    const incident = await this.incidents.setStatus(id, status as Exclude<IncidentStatus, "creado">);
+    return { updated: true as const, incident };
   }
 }

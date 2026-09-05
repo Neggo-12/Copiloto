@@ -145,4 +145,29 @@ export class EmergencyIncidentsService {
     }
     return ((data ?? []) as EmergencyIncidentRow[]).map(mapRow);
   }
+
+  /**
+   * Avanza el estado de un incidente — acción manual real del administrador
+   * desde el panel (antes la tabla era de solo lectura, sin forma de marcar
+   * que ya se recibió/atendió/cerró un caso real). A propósito no acepta
+   * `"creado"` como destino: ese valor solo lo pone `createPoliceIncident` al
+   * nacer el incidente, nunca es una transición manual hacia atrás.
+   */
+  async setStatus(id: string, status: Exclude<IncidentStatus, "creado">): Promise<EmergencyIncident> {
+    // Sin destructurar `{ data, error }`: el resultado de Supabase viene tipado
+    // `any`, y desestructurarlo directo dispara `no-unsafe-assignment` de
+    // ESLint (mismo caso real ya encontrado y corregido en `createPoliceIncident`,
+    // ver decisión (34)) — acceder por `.data`/`.error` evita el problema.
+    const updateResult = await this.supabase
+      .from("emergency_incidents")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (updateResult.error) {
+      this.logger.error(`setStatus(${id}, ${status}): ${updateResult.error.message}`);
+      throw updateResult.error;
+    }
+    return mapRow(updateResult.data as EmergencyIncidentRow);
+  }
 }
