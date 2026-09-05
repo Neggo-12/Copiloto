@@ -110,7 +110,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.ico?v=2", type: "image/x-icon" },
       // `manifest.json` es lo que le dice al navegador "esto se puede
       // instalar como app" — habilita "Agregar a inicio" real en iOS Safari
       // (ícono propio, pantalla completa sin la barra de Safari) y es
@@ -119,8 +119,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       // considerar la web app "instalable"). `apple-touch-icon` es el ícono
       // que iOS usa específicamente para "Agregar a inicio" — no lo toma
       // del `manifest.json` de forma confiable, hay que declararlo aparte.
+      //
+      // `?v=2` (2026-09-05, logo nuevo reemplazando el corazón de Lovable):
+      // el nombre del archivo no cambió, así que el navegador/iOS puede
+      // seguir sirviendo el PNG viejo desde caché aunque el archivo en el
+      // servidor ya sea otro — el query string fuerza a tratarlo como un
+      // recurso distinto. Subir este número cada vez que se reemplace el ícono.
       { rel: "manifest", href: "/manifest.json" },
-      { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" },
+      { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png?v=2" },
     ],
   }),
   shellComponent: RootShell,
