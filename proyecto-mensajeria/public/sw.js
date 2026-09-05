@@ -14,16 +14,18 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(
     (async () => {
-      // Si ya hay una pestaña de la app enfocada, la persona ya lo está
-      // viendo en vivo por Realtime/Socket.IO — no duplicar con un aviso
-      // del sistema operativo encima.
-      const clientsList = await self.clients.matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      });
-      const hasFocusedClient = clientsList.some((client) => client.focused);
-      if (hasFocusedClient) return;
-
+      // Bug real reportado 2026-09-05: con la app cerrada/en segundo plano
+      // llegaban solo ALGUNOS mensajes, no todos. Causa real encontrada
+      // aquí mismo: antes se pedía `clients.matchAll` y se comparaba
+      // `client.focused` para saltarse el aviso "si ya hay una pestaña
+      // enfocada" (asumiendo que Realtime/Socket.IO ya lo mostró en vivo) —
+      // pero en móvil (sobre todo la PWA instalada en iOS) `focused` no
+      // refleja de forma confiable si la persona de verdad está viendo la
+      // pantalla en ese momento; a veces marcaba `focused: true` con la app
+      // en segundo plano de verdad, y esa comprobación se comía el aviso
+      // en silencio. Perder un mensaje real es peor que, en el peor caso,
+      // duplicar un aviso mientras la persona ya tiene la pestaña abierta
+      // — así que ahora siempre se muestra.
       await self.registration.showNotification(payload.title ?? "Aviso", {
         body: payload.body ?? "",
         icon: "/favicon.ico",
@@ -35,7 +37,8 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+  const targetUrl =
+    (event.notification.data && event.notification.data.url) || "/";
 
   event.waitUntil(
     (async () => {
@@ -43,7 +46,9 @@ self.addEventListener("notificationclick", (event) => {
         type: "window",
         includeUncontrolled: true,
       });
-      const existing = clientsList.find((client) => client.url.includes(targetUrl));
+      const existing = clientsList.find((client) =>
+        client.url.includes(targetUrl),
+      );
       if (existing) {
         await existing.focus();
         return;
